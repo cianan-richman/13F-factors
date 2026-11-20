@@ -1,0 +1,13 @@
+mapping_source,security_type2,is_us_common_stock,cusip_count,unique_security_ids,total_value_usd,pct_tracked_dollars
+openfigi,Common Stock,True,2585,2524,15422277792891.0,88.57642288697954
+openfigi,Depositary Receipt,False,224,218,1033789597532.0,5.937474723050594
+manual_override,Common Stock,True,12,12,221360843028.0,1.2713654821925566
+openfigi,REIT,False,90,87,206073937726.0,1.1835665586582313
+openfigi,Common Stock,False,75,74,159533250691.0,0.9162644369079036
+openfigi_figi_stitch,Common Stock,True,43,43,153182693921.0,0.879790602784219
+unmapped,,False,249,249,100222281106.0,0.5756173811131103
+openfigi,Mutual Fund,False,86,81,81614562326.0,0.46874567320112975
+openfigi,Partnership Shares,False,28,27,21687019596.0,0.12455738670321365
+openfigi,Unit,False,153,152,6950111012.0,0.0399173183350476
+openfigi,Warrant,False,176,153,3965970495.0,0.022778183899938163
+openfigi,Right,False,6,6,609284000.0,0.0034993661745055227

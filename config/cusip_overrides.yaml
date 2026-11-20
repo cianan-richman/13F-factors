@@ -1,0 +1,77 @@
+# Manual CUSIP -> security identifier overrides for major historical corporate renames,
+# mergers, and restructurings whose predecessor CUSIP retired from OpenFIGI v3/mapping.
+# Every successor `share_class_figi` below is verified directly against our live OpenFIGI map
+# so QoQ share counts stitch seamlessly across corporate actions.
+
+overrides:
+  "13645T100":
+    ticker: "CP"
+    share_class_figi: "BBG001S7F4Z8"
+    security_type2: "Common Stock"
+    notes: "Canadian Pacific Railway -> Canadian Pacific Kansas City (13646K108) after Apr 2023 merger."
+
+  "91911K102":
+    ticker: "BHC"
+    share_class_figi: "BBG001S7WDP0"
+    security_type2: "Common Stock"
+    notes: "Valeant Pharmaceuticals -> Bausch Health Companies (071734107) rename in Jul 2018."
+
+  "580645109":
+    ticker: "SPGI"
+    share_class_figi: "BBG001S5T5M8"
+    security_type2: "Common Stock"
+    notes: "McGraw Hill Financial -> S&P Global Inc (78409V104) rename in Apr 2016."
+
+  "037612306":
+    ticker: "APO"
+    share_class_figi: "BBG00ZNLTFL2"
+    security_type2: "Common Stock"
+    notes: "Apollo Global Management LLC -> Apollo Global Management Inc (03769M106) C-corp conversion."
+
+  "26078J100":
+    ticker: "DD"
+    share_class_figi: "BBG00BN961H3"
+    security_type2: "Common Stock"
+    notes: "DowDuPont Inc -> DuPont de Nemours Inc (26614N102) post-2019 spinoffs."
+
+  "74876Y101":
+    ticker: "IQV"
+    share_class_figi: "BBG00333FZ54"
+    security_type2: "Common Stock"
+    notes: "Quintiles IMS Holdings -> IQVIA Holdings Inc (46266C105) rename in Nov 2017."
+
+  "194014106":
+    ticker: "ENOV"
+    share_class_figi: "BBG001SC04J1"
+    security_type2: "Common Stock"
+    notes: "Colfax Corp -> Enovis Corp (194014502) post-ESAB spinoff and reverse split."
+
+  "43300A104":
+    ticker: "HLT"
+    share_class_figi: "BBG0058KMH49"
+    security_type2: "Common Stock"
+    notes: "Hilton Worldwide Holdings pre-Jan 2017 reverse-split/spinoff CUSIP -> 43300A203."
+
+  "761283100":
+    ticker: "RH"
+    share_class_figi: "BBG002293Q93"
+    security_type2: "Common Stock"
+    notes: "Restoration Hardware Holdings -> RH (74967X103) rename in Jan 2017."
+
+  "421924309":
+    ticker: "EHC"
+    share_class_figi: "BBG001S5Q5B3"
+    security_type2: "Common Stock"
+    notes: "HealthSouth Corp -> Encompass Health Corp (29261A100) rename in Jan 2018."
+
+  "G96666105":
+    ticker: "WTW"
+    share_class_figi: "BBG001SHY2Q9"
+    security_type2: "Common Stock"
+    notes: "Willis Group Holdings -> Willis Towers Watson (G96629103) merger in Jan 2016."
+
+  "72766Q105":
+    ticker: "ESI"
+    share_class_figi: "BBG004KDL523"
+    security_type2: "Common Stock"
+    notes: "Platform Specialty Products -> Element Solutions Inc (28618M106) rename in Jan 2019."

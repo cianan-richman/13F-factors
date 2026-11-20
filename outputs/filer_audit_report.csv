@@ -1,0 +1,37 @@
+filer_id,canonical_name,style,status,primary_cik,used_ciks,hr_count,hra_count,first_filed,last_filed,missing_qtr_count,missing_qtrs,dup_hr_qtrs,distinct_names,has_rename
+tiger_global,Tiger Global Management,growth_tmt_ls,active,0001167483,0001167483,48,0,2015-02-17,2026-11-16,0,,,TIGER GLOBAL MANAGEMENT LLC,False
+coatue,Coatue Management,growth_tmt_ls,active,0001135730,0001135730,48,3,2015-02-17,2026-11-16,0,,,COATUE MANAGEMENT LLC,False
+lone_pine,Lone Pine Capital,growth_tmt_ls,active,0001061165,0001061165,48,2,2015-02-17,2026-11-16,0,,,LONE PINE CAPITAL LLC,False
+viking_global,Viking Global Investors,growth_tmt_ls,active,0001103804,0001103804,48,2,2015-02-17,2026-11-16,0,,,VIKING GLOBAL INVESTORS LP,False
+sands_capital,Sands Capital Management,growth_tmt_ls,active,0001020066,0001020066,48,5,2015-02-11,2026-11-13,0,,,"SANDS CAPITAL MANAGEMENT, LLC",False
+whale_rock,Whale Rock Capital Management,growth_tmt_ls,active,0001387322,0001387322,48,3,2015-02-18,2026-11-13,0,,,Whale Rock Capital Management LLC,False
+altimeter,Altimeter Capital Management,growth_tmt_ls,active,0001541617,0001541617,48,3,2015-02-13,2026-11-16,0,,,"Altimeter Capital Management, LP",False
+sustainable_growth_advisers,Sustainable Growth Advisers,growth_tmt_ls,active,0001290668,0001290668,48,3,2015-02-06,2026-10-15,0,,,"Sustainable Growth Advisers, LP",False
+srs_investment,SRS Investment Management,growth_tmt_ls,active,0001503174,0001503174,48,1,2015-02-17,2026-11-16,0,,,"SRS Investment Management, LLC",False
+dragoneer,Dragoneer Investment Group,growth_tmt_ls,active,0001602189,0001602189,48,0,2015-02-17,2026-11-16,0,,,"Dragoneer Investment Group, LLC",False
+suvretta_montanova,Suvretta / Montanova Capital,growth_tmt_ls,active,0001569064,0001569064,48,2,2015-02-17,2026-11-16,0,,,"SUVRETTA CAPITAL MANAGEMENT, LLC; MONTANOVA CAPITAL, LLC",True
+d1_capital,D1 Capital Partners,growth_tmt_ls,active,0001747057,0001747057,32,0,2019-02-14,2026-11-16,0,,,D1 Capital Partners L.P.,False
+baupost,The Baupost Group,value_contrarian_ls,active,0001061768,0001061768,48,2,2015-02-13,2026-11-13,0,,,BAUPOST GROUP LLC/MA,False
+greenlight_dme,Greenlight / DME Capital Management,value_contrarian_ls,active,0001489933,0001079114;0001489933,48,2,2015-02-13,2026-11-16,0,,,"GREENLIGHT CAPITAL INC; DME Capital Management, LP",True
+appaloosa,Appaloosa Management,value_contrarian_ls,active,0001656456,0001006438;0001656456,48,0,2015-02-13,2026-11-16,0,,,APPALOOSA MANAGEMENT LP; Appaloosa LP,True
+abrams_capital,Abrams Capital Management,value_contrarian_ls,active,0001358706,0001358706,48,0,2015-02-13,2026-11-13,0,,,"ABRAMS CAPITAL MANAGEMENT, L.P.",False
+eminence_capital,Eminence Capital,value_contrarian_ls,active,0001107310,0001107310,48,0,2015-02-17,2026-11-06,0,,,"EMINENCE CAPITAL, LP",False
+glenview_capital,Glenview Capital Management,value_contrarian_ls,active,0001138995,0001138995,48,2,2015-02-17,2026-11-16,0,,,"GLENVIEW CAPITAL MANAGEMENT, LLC",False
+kensico_capital,Kensico Capital Management,value_contrarian_ls,active,0001113000,0001113000,48,0,2015-02-17,2026-11-16,0,,,KENSICO CAPITAL MANAGEMENT CORP,False
+senvest,Senvest Management,value_contrarian_ls,active,0001328785,0001328785,48,0,2015-02-17,2026-11-13,0,,,"RIMA SENVEST MANAGEMENT, L.L.C.; Senvest Management, LLC",True
+brave_warrior,Brave Warrior Advisors,value_contrarian_ls,active,0001553733,0001553733,48,1,2015-02-17,2026-11-16,0,,,"Brave Warrior Advisors, LLC",False
+southeastern_asset,Southeastern Asset Management,value_contrarian_ls,active,0000807985,0000807985,48,0,2015-02-13,2026-11-16,0,,,SOUTHEASTERN ASSET MANAGEMENT INC/TN/,False
+akre_capital,Akre Capital Management,quality_generalist,active,0001112520,0001112520,48,5,2015-02-13,2026-11-13,0,,,AKRE CAPITAL MANAGEMENT LLC,False
+tci_fund,TCI Fund Management,quality_generalist,active,0001647251,0001362598;0001647251,48,0,2015-02-17,2026-11-16,0,,,Childrens Investment Fund Management (UK) LLP; TCI Fund Management Ltd,True
+egerton_capital,Egerton Capital,quality_generalist,active,0001581811,0001581811,48,14,2015-02-11,2026-10-20,0,,,Egerton Capital (UK) LLP,False
+fundsmith,Fundsmith LLP,quality_generalist,active,0001569205,0001569205,48,2,2015-02-10,2026-11-16,0,,,Fundsmith LLP,False
+ruane_cunniff,"Ruane, Cunniff & Goldfarb",quality_generalist,active,0001720792,0000728014;0001720792,48,1,2015-02-17,2026-11-16,0,,,"RUANE, CUNNIFF & GOLDFARB INC; Ruane, Cunniff & Goldfarb L.P.",True
+soroban_capital,Soroban Capital Partners,quality_generalist,active,0001517857,0001517857,48,0,2015-02-17,2026-11-16,0,,,Soroban Capital Partners LP,False
+cantillon_capital,Cantillon Capital Management,quality_generalist,active,0001279936,0001279936,47,3,2015-02-09,2026-07-29,0,,,CANTILLON CAPITAL MANAGEMENT LLC,False
+independent_franchise,Independent Franchise Partners,quality_generalist,active,0001483866,0001483866,48,0,2015-02-03,2026-11-13,0,,,Independent Franchise Partners LLP,False
+edgepoint,EdgePoint Investment Group,value_contrarian_ls,active,0001481669,0001481669,48,3,2015-02-09,2026-11-16,0,,,EdgePoint Investment Group Inc.,False
+steadfast_capital,Steadfast Capital Management,quality_generalist,active,0001214822,0001214822,48,4,2015-02-17,2026-11-16,0,,,STEADFAST CAPITAL MANAGEMENT LP,False
+blue_ridge,Blue Ridge Capital,closed_peer,closed,0001062589,0001062589,20,0,2015-02-17,2021-11-08,8,2019Q1;2019Q2;2019Q3;2019Q4;2020Q1;2020Q2;2020Q3;2020Q4,,"Blue Ridge Capital, L.L.C.",False
+melvin_capital,Melvin Capital Management,closed_peer,closed,0001628110,0001628110,36,2,2015-02-17,2023-10-05,0,,,Melvin Capital Management LP,False
+highfields_capital,Highfields Capital Management,closed_peer,closed,0001079563,0001079563,24,3,2015-02-13,2020-11-16,0,,,HIGHFIELDS CAPITAL MANAGEMENT LP,False
+tourbillon_capital,Tourbillon Capital Partners,closed_peer,closed,0001592476,0001592476,17,2,2015-02-17,2019-02-14,0,,,"Tourbillon Capital Partners LP; Tourbillon Capital Partners, L.P.",True

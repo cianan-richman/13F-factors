@@ -1,0 +1,44 @@
+# Pipeline & Backtest Configuration
+
+window:
+  start_date: "2015-01-01"
+  in_sample_end: "2023-12-31"         # ~80% IS development window (2015–2023, 36 quarters)
+  oos_start: "2024-01-01"             # ~20% OOS holdout window (2024–present, frozen model)
+  end_date: null                      # null = latest available trading date ("present")
+  first_report_quarter: "2014-12-31"  # Needed to compute Q1 2015 QoQ active share deltas
+
+edgar:
+  max_requests_per_sec: 8
+  max_workers: 5
+  max_retries: 5
+  backoff_base_sec: 1.0
+  form_types:
+    - "13F-HR"
+    - "13F-HR/A"
+
+universe:
+  min_market_cap_usd: 2_000_000_000   # $2B point-in-time market cap floor (SEC companyfacts)
+  min_adv_20d_usd: 10_000_000         # $10M 20-day ADV floor
+  exclude_put_call: true              # Strictly long common equity rows only
+  allowed_share_types:
+    - "SH"
+  allowed_security_types:
+    - "Common Stock"                  # Exclude REITs, ETFs, ADRs, SPAC units, warrants
+
+execution:
+  lag_trading_days: 1                 # Filing accepted day T -> trade at T+1 MOC
+  turnover_buffer_bps: 25             # No-trade zone around drifted weights
+  rebalance_modes:
+    - "event_driven"
+    - "fixed_quarterly_post_window"
+  fixed_rebalance_offset_days: 46     # Calendar days after quarter-end for fixed benchmark
+
+costs:
+  large_cap_threshold_usd: 10_000_000_000
+  large_cap_one_way_bps: 5
+  mid_cap_one_way_bps: 12
+  sensitivity_grid_one_way_bps: [0, 5, 10, 20]
+
+hedging:
+  benchmark_ticker: "SPY"
+  rolling_beta_window_days: 252       # 1-year strictly PIT trailing daily regression vs SPY

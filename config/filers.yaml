@@ -1,0 +1,460 @@
+# Curated Fundamental Hedge Fund Universe & Entity Mapping Override Table
+#
+# Single source of truth for downstream EDGAR ingestion (`src/ingest/entity_audit.py`
+# and `src/ingest/filings.py`). Verified against SEC EDGAR master.idx (2015 Q1 -> 2026 Q4).
+#
+# Schema per canonical filer:
+#   filer_id:         Stable snake_case identifier used across PIT & factor tables
+#   canonical_name:   Human-readable canonical fund complex name
+#   style:            growth_tmt_ls | value_contrarian_ls | quality_generalist | closed_peer
+#   status:           active | closed  (documentation metadata only; never used as lookahead)
+#   cik:              Primary / current 10-digit zero-padded canonical parent CIK
+#   predecessor_ciks: Optional date-bounded CIK migration overrides:
+#                       - cik: "0000000000"
+#                         name: "Prior legal entity name"
+#                         max_filing_date: "YYYY-MM-DD"   # Inclusive upper bound on date_filed
+#                         reason: "Why entity migrated"
+#   subsidiary_ciks:  Explicitly excluded overlapping subsidiary / affiliate CIKs (dedup)
+#   unrelated_ciks:   Known false-positive CIKs matching search_aliases (unrelated firms)
+#   search_aliases:   Substrings audited against master.idx to catch new affiliate/successor CIKs
+#   notes:            Audit provenance notes
+
+filers:
+  # ---------------------------------------------------------------------------
+  # 1. Tiger Cubs & Fundamental Growth / TMT L/S (12 funds)
+  # ---------------------------------------------------------------------------
+  - filer_id: tiger_global
+    canonical_name: "Tiger Global Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001167483"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["TIGER GLOBAL"]
+    notes: "Clean 48/48 quarters (TIGER GLOBAL MANAGEMENT LLC)."
+
+  - filer_id: coatue
+    canonical_name: "Coatue Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001135730"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0001633822" # Coatue Long Only Offshore Master Fund Ltd (13F-NT)
+      - "0001664809" # COATUE OFFSHORE MASTER FUND LP (13F-NT)
+    unrelated_ciks: []
+    search_aliases: ["COATUE"]
+    notes: "Consolidated parent filer; 39 affiliated Coatue vehicles file 13F-NT notices."
+
+  - filer_id: lone_pine
+    canonical_name: "Lone Pine Capital"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001061165"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["LONE PINE"]
+    notes: "Clean 48/48 quarters (LONE PINE CAPITAL LLC)."
+
+  - filer_id: viking_global
+    canonical_name: "Viking Global Investors"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001103804"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["VIKING GLOBAL"]
+    notes: "Clean 48/48 quarters (VIKING GLOBAL INVESTORS LP)."
+
+  - filer_id: sands_capital
+    canonical_name: "Sands Capital Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001020066"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0001846444" # Sands Capital Ventures / Alternatives, LLC (venture/alts affiliate)
+    unrelated_ciks: []
+    search_aliases: ["SANDS CAPITAL"]
+    notes: "Clean 48/48 quarters (SANDS CAPITAL MANAGEMENT, LLC); excluded venture/alts affiliate 0001846444."
+
+  - filer_id: whale_rock
+    canonical_name: "Whale Rock Capital Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001387322"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["WHALE ROCK"]
+    notes: "Clean 48/48 quarters (Whale Rock Capital Management LLC)."
+
+  - filer_id: altimeter
+    canonical_name: "Altimeter Capital Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001541617"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["ALTIMETER"]
+    notes: "Clean 48/48 quarters (Altimeter Capital Management, LP)."
+
+  - filer_id: sustainable_growth_advisers
+    canonical_name: "Sustainable Growth Advisers"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001290668"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SUSTAINABLE GROWTH"]
+    notes: "Clean 48/48 quarters (Sustainable Growth Advisers, LP)."
+
+  - filer_id: srs_investment
+    canonical_name: "SRS Investment Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001503174"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SRS INVESTMENT"]
+    notes: "Clean 48/48 quarters (SRS Investment Management, LLC)."
+
+  - filer_id: dragoneer
+    canonical_name: "Dragoneer Investment Group"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001602189"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["DRAGONEER"]
+    notes: "Clean 48/48 quarters (Dragoneer Investment Group, LLC)."
+
+  - filer_id: suvretta_montanova
+    canonical_name: "Suvretta / Montanova Capital"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001569064"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SUVRETTA", "MONTANOVA CAPITAL"]
+    notes: "Clean 48/48 quarters; renamed from SUVRETTA CAPITAL MANAGEMENT, LLC to MONTANOVA CAPITAL, LLC in Q3 2026 (same CIK)."
+
+  - filer_id: d1_capital
+    canonical_name: "D1 Capital Partners"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001747057"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["D1 CAPITAL"]
+    notes: "Launched 2018; 32/32 continuous quarters from 2019 Q1 onward (strict PIT entry)."
+
+  # ---------------------------------------------------------------------------
+  # 2. Concentrated Fundamental Value & Contrarian L/S (10 funds)
+  # ---------------------------------------------------------------------------
+  - filer_id: baupost
+    canonical_name: "The Baupost Group"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001061768"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["BAUPOST"]
+    notes: "Clean 48/48 quarters (BAUPOST GROUP LLC/MA)."
+
+  - filer_id: greenlight_dme
+    canonical_name: "Greenlight / DME Capital Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001489933"
+    predecessor_ciks:
+      - cik: "0001079114"
+        name: "GREENLIGHT CAPITAL INC"
+        max_filing_date: "2024-02-29"
+        reason: "Adviser entity transitioned from Greenlight Capital Inc to DME Capital Management, LP starting Q1 2024 (filed 2024-05-15)."
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["GREENLIGHT CAPITAL", "DME CAPITAL"]
+    notes: "Seamless 48/48 quarters across 2024 CIK migration (37 predecessor + 11 successor)."
+
+  - filer_id: appaloosa
+    canonical_name: "Appaloosa Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001656456"
+    predecessor_ciks:
+      - cik: "0001006438"
+        name: "APPALOOSA MANAGEMENT LP"
+        max_filing_date: "2016-03-31"
+        reason: "Entity restructured from Appaloosa Management LP to Appaloosa LP starting Q1 2016 (filed 2016-05-13)."
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["APPALOOSA"]
+    notes: "Seamless 48/48 quarters across 2016 CIK migration (5 predecessor + 43 successor)."
+
+  - filer_id: abrams_capital
+    canonical_name: "Abrams Capital Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001358706"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks:
+      - "0001317588" # Abrams Bison Investments, LLC (separate unaffiliated firm)
+    search_aliases: ["ABRAMS CAPITAL"]
+    notes: "Clean 48/48 quarters (ABRAMS CAPITAL MANAGEMENT, L.P.)."
+
+  - filer_id: eminence_capital
+    canonical_name: "Eminence Capital"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001107310"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["EMINENCE CAPITAL"]
+    notes: "Clean 48/48 quarters (EMINENCE CAPITAL, LP)."
+
+  - filer_id: glenview_capital
+    canonical_name: "Glenview Capital Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001138995"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks:
+      - "0001598244" # Glenview State Bank Trust Dept. (unrelated bank)
+      - "0001691827" # Glenview Trust Co (unrelated trust company)
+    search_aliases: ["GLENVIEW CAPITAL"]
+    notes: "Clean 48/48 quarters (GLENVIEW CAPITAL MANAGEMENT, LLC)."
+
+  - filer_id: kensico_capital
+    canonical_name: "Kensico Capital Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001113000"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["KENSICO"]
+    notes: "Clean 48/48 quarters (KENSICO CAPITAL MANAGEMENT CORP)."
+
+  - filer_id: senvest
+    canonical_name: "Senvest Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001328785"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0001359952" # SENVEST INTERNATIONAL LLC (13F-NT)
+    unrelated_ciks: []
+    search_aliases: ["SENVEST"]
+    notes: "Clean 48/48 quarters; renamed from RIMA SENVEST MANAGEMENT, L.L.C. to Senvest Management, LLC (same CIK)."
+
+  - filer_id: brave_warrior
+    canonical_name: "Brave Warrior Advisors"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001553733"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["BRAVE WARRIOR"]
+    notes: "Clean 48/48 quarters (Brave Warrior Advisors, LLC)."
+
+  - filer_id: southeastern_asset
+    canonical_name: "Southeastern Asset Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0000807985"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SOUTHEASTERN ASSET"]
+    notes: "Clean 48/48 quarters (SOUTHEASTERN ASSET MANAGEMENT INC/TN/)."
+
+  # ---------------------------------------------------------------------------
+  # 3. Long-Horizon Quality Compounders & Fundamental Generalists (10 funds)
+  # ---------------------------------------------------------------------------
+  - filer_id: akre_capital
+    canonical_name: "Akre Capital Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001112520"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["AKRE CAPITAL"]
+    notes: "Clean 48/48 quarters (AKRE CAPITAL MANAGEMENT LLC)."
+
+  - filer_id: tci_fund
+    canonical_name: "TCI Fund Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001647251"
+    predecessor_ciks:
+      - cik: "0001362598"
+        name: "Childrens Investment Fund Management (UK) LLP"
+        max_filing_date: "2015-06-30"
+        reason: "TCI Fund Management Ltd began filing Q2 2015 (2015-08-17); UK LLP continued overlapping filings through 2016-11-14, so cap UK LLP strictly before 2015-06-30 to achieve 48/48 without overlap."
+    subsidiary_ciks: []
+    unrelated_ciks:
+      - "0001583751" # TCI Wealth Advisors, Inc. (unrelated RIA)
+    search_aliases: ["TCI FUND", "CHILDRENS INVESTMENT"]
+    notes: "48/48 quarters via capped UK LLP predecessor (2 qtrs) + TCI Fund Management Ltd (46 qtrs); post-2015-06-30 UK LLP overlap excluded."
+
+  - filer_id: egerton_capital
+    canonical_name: "Egerton Capital"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001581811"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0001939232" # Egerton Capital (US), LP (13F-NT)
+    unrelated_ciks: []
+    search_aliases: ["EGERTON"]
+    notes: "Clean 48/48 quarters (Egerton Capital (UK) LLP); 14 13F-HR/A amendments."
+
+  - filer_id: fundsmith
+    canonical_name: "Fundsmith LLP"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001569205"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0001868537" # FUNDSMITH INVESTMENT SERVICES LTD. (overlapping affiliate 2021-2026)
+      - "0001520023" # Fundsmith Equity Fund, L.P. (overlapping 2018)
+      - "0001813932" # Fundsmith Long/Short Master Fund (overlapping 2021)
+    unrelated_ciks: []
+    search_aliases: ["FUNDSMITH"]
+    notes: "Clean 48/48 quarters (Fundsmith LLP); excluded 3 overlapping affiliate/fund CIKs."
+
+  - filer_id: ruane_cunniff
+    canonical_name: "Ruane, Cunniff & Goldfarb"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001720792"
+    predecessor_ciks:
+      - cik: "0000728014"
+        name: "RUANE, CUNNIFF & GOLDFARB INC"
+        max_filing_date: "2018-05-14"
+        reason: "Entity converted from Inc. to L.P.; both CIKs filed on 2018-05-15, so cap Inc. at 2018-05-14 to eliminate 1-quarter duplicate."
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["RUANE, CUNNIFF"]
+    notes: "48/48 quarters across May 2018 Inc.->L.P. migration with duplicate 2018-05-15 filing removed."
+
+  - filer_id: soroban_capital
+    canonical_name: "Soroban Capital Partners"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001517857"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SOROBAN"]
+    notes: "Clean 48/48 quarters (Soroban Capital Partners LP)."
+
+  - filer_id: cantillon_capital
+    canonical_name: "Cantillon Capital Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001279936"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0001352269" # Cantillon Capital Management LLP (13F-NT)
+    unrelated_ciks: []
+    search_aliases: ["CANTILLON"]
+    notes: "47 continuous quarters (2015 Q1..2026 Q3); Q3 2026 not filed as of 2026-11-19."
+
+  - filer_id: independent_franchise
+    canonical_name: "Independent Franchise Partners"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001483866"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["INDEPENDENT FRANCHISE"]
+    notes: "Clean 48/48 quarters (Independent Franchise Partners LLP)."
+
+  - filer_id: edgepoint
+    canonical_name: "EdgePoint Investment Group"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001481669"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["EDGEPOINT"]
+    notes: "Clean 48/48 quarters (EdgePoint Investment Group Inc.)."
+
+  - filer_id: steadfast_capital
+    canonical_name: "Steadfast Capital Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001214822"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0001872297" # Steadfast Capital Management (UK) Ltd. (4 overlapping 13F-HRs in 2021-2022)
+      - "0001213310" # STEADFAST ADVISORS LP (9 overlapping 13F-HRs in 2015-2017)
+    unrelated_ciks: []
+    search_aliases: ["STEADFAST"]
+    notes: "Clean 48/48 quarters; excluded overlapping affiliate filers 0001872297 (UK) and 0001213310 (Advisors LP)."
+
+  # ---------------------------------------------------------------------------
+  # 4. Wound-Down 2015-Era Fundamental Peers (4 funds; Anti-Survivorship)
+  # ---------------------------------------------------------------------------
+  - filer_id: blue_ridge
+    canonical_name: "Blue Ridge Capital"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001062589"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["BLUE RIDGE CAPITAL"]
+    notes: "Anti-survivorship peer; 16 continuous quarters (2015 Q1..2018 Q4), 8-quarter hiatus (2019-2020), then 4 filings in 2021. PIT engine must not compute QoQ deltas across >1 missing quarter."
+
+  - filer_id: melvin_capital
+    canonical_name: "Melvin Capital Management"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001628110"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["MELVIN CAPITAL"]
+    notes: "Anti-survivorship peer; 36 continuous quarters (2015 Q1..2023 Q4)."
+
+  - filer_id: highfields_capital
+    canonical_name: "Highfields Capital Management"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001079563"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["HIGHFIELDS CAPITAL"]
+    notes: "Anti-survivorship peer; 24 continuous quarters (2015 Q1..2020 Q4)."
+
+  - filer_id: tourbillon_capital
+    canonical_name: "Tourbillon Capital Partners"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001592476"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["TOURBILLON"]
+    notes: "Anti-survivorship peer; 17 continuous quarters (2015 Q1..2019 Q1)."
