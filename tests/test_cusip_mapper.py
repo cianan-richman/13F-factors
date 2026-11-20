@@ -30,11 +30,13 @@ def test_normalize_yahoo_ticker_and_id_type() -> None:
 def test_openfigi_client_keyed_vs_keyless_fallback() -> None:
     keyless = OpenFigiClient(api_key=None)
     assert keyless.batch_size == 10
+    assert keyless.default_workers == 1
     assert "X-OPENFIGI-APIKEY" not in keyless._session.headers
     keyless.close()
 
     keyed = OpenFigiClient(api_key="dummy-key")
     assert keyed.batch_size == 100
+    assert keyed.default_workers == 4
     assert keyed._session.headers["X-OPENFIGI-APIKEY"] == "dummy-key"
     keyed.close()
 

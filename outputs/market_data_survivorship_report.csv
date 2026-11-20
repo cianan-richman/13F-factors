@@ -1,0 +1,4 @@
+price_coverage_status,cusip_count,unique_security_ids,total_value_usd,pct_us_common_dollars
+priced_in_yfinance,1229,1169,14382819753613.0,91.04882212248631
+missing_or_delisted_in_yfinance,1250,1204,940781667199.0,5.955512489223861
+dead_bloomberg_id,161,159,473219909028.0,2.9956653882898165

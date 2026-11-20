@@ -53,11 +53,29 @@ python -m src.ingest.cusip_mapper
 python -m src.ingest.cusip_mapper --resolve-only
 ```
 
-### 4. Full Pipeline & Tests
+### 4. Ingest Market Data (`yfinance`) & PIT Shares Outstanding (SEC `companyfacts`)
 ```bash
+# Batched yfinance OHLCV/splits/dividends (2014->present), un-splitting, ADV_20d & 252d PIT beta
+python -m src.ingest.market_data
+
+# Strictly PIT unadjusted shares outstanding via SEC EDGAR companyfacts XBRL
+python -m src.ingest.shares_outstanding
+```
+
+### 5. End-to-End Pipeline & Expected Clean-Clone Runtime
+```bash
+# Run all Phase 1 ingestion stages end-to-end (runs Yahoo Finance & SEC companyfacts concurrently)
+python -m src.run_pipeline --stage ingest
+
+# Fast ~60-second smoke test on recent filings & top tickers
+python -m src.run_pipeline --stage ingest --smoke
+
+# Run full pipeline (once Phase 2-4 stages are wired) & unit tests
 python -m src.run_pipeline --stage all
 pytest
 ```
+
+**Expected Cold-Clone Runtime:** ~8–9 minutes with a free `OPENFIGI_API_KEY` (~22 minutes without an OpenFIGI key); **< 30 seconds** on subsequent cached re-runs. Yahoo Finance downloads stay intentionally conservative (`threads=4`, 2s batch pause + `YFRateLimitError` cooldown) to avoid IP throttling while running concurrently alongside SEC `companyfacts`.
 
 ## Project Structure
 

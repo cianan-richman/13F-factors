@@ -21,12 +21,15 @@ import argparse
 import json
 import logging
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
 
 from src.config import OUTPUTS_DIR, PROCESSED_DATA_DIR, RAW_DATA_DIR, load_config
@@ -156,21 +159,31 @@ class OpenFigiClient:
         #   With key: 100 jobs/req, 25 req/6s  (~0.28s spacing for safe margin)
         if self.api_key:
             self.batch_size = 100
-            self.min_interval_sec = 0.28
-            logger.info("OpenFIGI client using authenticated key tier (100 CUSIPs/batch).")
+            self.min_interval_sec = 0.30  # ~3.3 req/s, safely under 25 req / 6s
+            self.default_workers = 4
+            logger.info(
+                "OpenFIGI client using authenticated key tier (100 CUSIPs/batch, 4 workers)."
+            )
         else:
             self.batch_size = 10
             self.min_interval_sec = 2.6
+            self.default_workers = 1
             logger.info(
                 "OPENFIGI_API_KEY not set; falling back to keyless OpenFIGI tier "
                 "(10 CUSIPs/batch, ~23 req/min — slower but checkpointed per batch)."
             )
 
+        self._lock = threading.Lock()
+        self._next_allowed_ts = 0.0
+
         self._session = session or requests.Session()
+        if session is None:
+            adapter = HTTPAdapter(pool_connections=8, pool_maxsize=8, max_retries=0)
+            self._session.mount("https://", adapter)
+            self._session.mount("http://", adapter)
         self._session.headers.update({"Content-Type": "application/json"})
         if self.api_key:
             self._session.headers["X-OPENFIGI-APIKEY"] = self.api_key
-        self._last_request_ts = 0.0
 
     def __enter__(self) -> OpenFigiClient:
         return self
@@ -181,12 +194,14 @@ class OpenFigiClient:
     def close(self) -> None:
         self._session.close()
 
-    def _throttle(self) -> None:
-        now = time.monotonic()
-        elapsed = now - self._last_request_ts
-        if self._last_request_ts > 0 and elapsed < self.min_interval_sec:
-            time.sleep(self.min_interval_sec - elapsed)
-        self._last_request_ts = time.monotonic()
+    def _acquire_slot(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            scheduled = max(now, self._next_allowed_ts)
+            self._next_allowed_ts = scheduled + self.min_interval_sec
+        wait_sec = scheduled - now
+        if wait_sec > 0:
+            time.sleep(wait_sec)
 
     def map_cusip_batch(self, cusips: list[str]) -> list[dict[str, Any]]:
         """Send a single OpenFIGI v3/mapping POST batch for up to `self.batch_size` CUSIPs."""
@@ -207,7 +222,7 @@ class OpenFigiClient:
 
         last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
-            self._throttle()
+            self._acquire_slot()
             try:
                 resp = self._session.post(
                     OPENFIGI_MAPPING_URL,
@@ -507,28 +522,46 @@ def build_cusip_map(
             missing[i : i + client.batch_size]
             for i in range(0, len(missing), client.batch_size)
         ]
-        pbar = (
-            tqdm(total=len(missing), desc="OpenFIGI CUSIP map", unit="cusip")
-            if show_progress
-            else None
-        )
-        try:
-            for batch in batches:
-                results = client.map_cusip_batch(batch)
-                new_entries: list[dict[str, Any]] = []
-                for cusip, res in zip(batch, results, strict=True):
-                    entry = {
+        workers = max(1, min(getattr(client, "default_workers", 1), len(batches)))
+        cache_lock = threading.Lock()
+
+        def _fetch_batch(batch: list[str]) -> int:
+            results = client.map_cusip_batch(batch)
+            new_entries: list[dict[str, Any]] = []
+            for cusip, res in zip(batch, results, strict=True):
+                new_entries.append(
+                    {
                         "cusip": cusip,
                         "query_id_type": openfigi_id_type(cusip),
                         "data": res.get("data", []),
                         "error": res.get("error", ""),
                         "warning": res.get("warning", ""),
                     }
-                    cache[cusip] = entry
-                    new_entries.append(entry)
+                )
+            with cache_lock:
+                for entry in new_entries:
+                    cache[entry["cusip"]] = entry
                 append_cusip_cache(new_entries, cache_path)
-                if pbar is not None:
-                    pbar.update(len(batch))
+            return len(batch)
+
+        pbar = (
+            tqdm(total=len(missing), desc="OpenFIGI CUSIP map", unit="cusip")
+            if show_progress
+            else None
+        )
+        try:
+            if workers == 1:
+                for batch in batches:
+                    n_done = _fetch_batch(batch)
+                    if pbar is not None:
+                        pbar.update(n_done)
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = {pool.submit(_fetch_batch, b): b for b in batches}
+                    for fut in as_completed(futures):
+                        n_done = fut.result()
+                        if pbar is not None:
+                            pbar.update(n_done)
         finally:
             if pbar is not None:
                 pbar.close()
