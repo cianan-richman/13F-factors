@@ -97,14 +97,20 @@ class EdgarClient:
         if wait_sec > 0:
             time.sleep(wait_sec)
 
-    def get(self, url: str, *, allow_not_found: bool = False) -> requests.Response:
+    def get(
+        self,
+        url: str,
+        *,
+        allow_not_found: bool = False,
+        headers: dict[str, str] | None = None,
+    ) -> requests.Response:
         """Issue a throttled GET request with exponential backoff on retryable errors."""
         last_exc: Exception | None = None
 
         for attempt in range(self.max_retries + 1):
             self._acquire_slot()
             try:
-                resp = self._session.get(url, timeout=self.timeout)
+                resp = self._session.get(url, timeout=self.timeout, headers=headers)
             except requests.RequestException as exc:
                 last_exc = exc
                 if attempt >= self.max_retries:
@@ -121,7 +127,7 @@ class EdgarClient:
                 time.sleep(sleep_sec)
                 continue
 
-            if resp.status_code == 200:
+            if resp.status_code in (200, 206):
                 return resp
 
             if resp.status_code == 404 and allow_not_found:

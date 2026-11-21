@@ -458,3 +458,734 @@ filers:
     unrelated_ciks: []
     search_aliases: ["TOURBILLON"]
     notes: "Anti-survivorship peer; 17 continuous quarters (2015 Q1..2019 Q1)."
+
+  # ---------------------------------------------------------------------------
+  # 5. SEC SUMMARYPAGE Screened Expansion (+64 Audited Entities -> 100 Total)
+  #    Drawn directly from outputs/filer_screening_candidates.csv
+  #    (>=8 qtrs, median 13F AUM >= $2.0B, 10 <= median entries <= 100,
+  #     excluding banks/RIAs, sovereigns, pensions, insurers, PE/VC, market-makers,
+  #     ETF overlays, REIT-only, and pure activists; CIK migrations & affiliates audited)
+  # ---------------------------------------------------------------------------
+
+  # --- 5a. Additional Growth / TMT / Fundamental L/S (18 funds) ---
+  - filer_id: gqg_partners
+    canonical_name: "GQG Partners"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001697233"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["GQG PARTNERS"]
+    notes: "Screened rank #1 ($34.6B med AUM, 72 med entries, 2016 Q4..2026)."
+
+  - filer_id: edgewood
+    canonical_name: "Edgewood Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0000860561"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks:
+      - "0000859804" # Wedgewood Partners Inc (unrelated)
+      - "0001125243" # Wedgewood Investors Inc (unrelated)
+      - "0002064043" # Ledgewood Wealth Advisors (unrelated)
+    search_aliases: ["EDGEWOOD MANAGEMENT"]
+    notes: "Concentrated large-cap growth ($28.7B med AUM, 80 med entries)."
+
+  - filer_id: polen_capital
+    canonical_name: "Polen Capital Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001034524"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["POLEN CAPITAL"]
+    notes: "Concentrated quality growth ($23.4B med AUM, 65 med entries)."
+
+  - filer_id: jackson_square
+    canonical_name: "Jackson Square Partners"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001605911"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks:
+      - "0001812178" # Jackson Square Capital LLC (unrelated RIA)
+    search_aliases: ["JACKSON SQUARE PARTNERS"]
+    notes: "Concentrated growth equities ($18.2B med AUM, 85 med entries)."
+
+  - filer_id: durable_capital
+    canonical_name: "Durable Capital Partners"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001798849"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["DURABLE CAPITAL"]
+    notes: "Henry Ellenbogen (ex-T. Rowe Price) concentrated growth ($11.3B med AUM, 51 med entries)."
+
+  - filer_id: dsm_capital
+    canonical_name: "DSM Capital Partners"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001214639"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["DSM CAPITAL"]
+    notes: "Concentrated fundamental growth ($6.6B med AUM, 50 med entries)."
+
+  - filer_id: pointstate
+    canonical_name: "PointState Capital"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001509842"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0002108400" # PointState Season LLC (single late filing affiliate)
+    unrelated_ciks: []
+    search_aliases: ["POINTSTATE CAPITAL"]
+    notes: "Zach Schreiber (ex-Duquesne) fundamental L/S ($5.8B med AUM, 90 med entries)."
+
+  - filer_id: disciplined_growth
+    canonical_name: "Disciplined Growth Investors"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001050442"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["DISCIPLINED GROWTH INVESTORS"]
+    notes: "Concentrated mid/large-cap growth ($4.8B med AUM, 84 med entries)."
+
+  - filer_id: hhlr_hillhouse
+    canonical_name: "HHLR Advisors (Hillhouse)"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001762304"
+    predecessor_ciks:
+      - cik: "0001510589"
+        name: "Hillhouse Capital Management, Ltd."
+        max_filing_date: "2018-12-31"
+        reason: "HHLR Advisors (formerly Hillhouse Capital Advisors) began filing Q4 2018 (2019-02-14); predecessor CIK 0001510589 overlapped for 3 quarters through 2019-08-14, so cap predecessor strictly before 2019."
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["HHLR ADVISORS", "HILLHOUSE CAPITAL"]
+    notes: "Stitched Hillhouse -> HHLR Advisors fundamental growth ($4.7B med AUM, 60 med entries)."
+
+  - filer_id: par_capital
+    canonical_name: "PAR Capital Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001051359"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["PAR CAPITAL MANAGEMENT"]
+    notes: "Concentrated travel/consumer/TMT L/S ($4.2B med AUM, 56 med entries)."
+
+  - filer_id: candlestick
+    canonical_name: "Candlestick Capital Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001789779"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["CANDLESTICK CAPITAL"]
+    notes: "Jack Woodruff fundamental L/S ($4.0B med AUM, 81 med entries)."
+
+  - filer_id: skye_global
+    canonical_name: "Skye Global Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001675884"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SKYE GLOBAL"]
+    notes: "Concentrated Tiger-lineage fundamental growth ($3.9B med AUM, 42 med entries)."
+
+  - filer_id: matrix_capital
+    canonical_name: "Matrix Capital Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001410830"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["MATRIX CAPITAL MANAGEMENT"]
+    notes: "David Goel concentrated TMT L/S ($3.5B med AUM, 19 med entries)."
+
+  - filer_id: aspex_management
+    canonical_name: "Aspex Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001768375"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["ASPEX MANAGEMENT"]
+    notes: "Hermes Li concentrated fundamental L/S ($3.4B med AUM, 29 med entries)."
+
+  - filer_id: atreides
+    canonical_name: "Atreides Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001777813"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["ATREIDES MANAGEMENT"]
+    notes: "Gavin Baker (ex-Fidelity) concentrated TMT L/S ($3.3B med AUM, 40 med entries)."
+
+  - filer_id: scge_management
+    canonical_name: "SCGE Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001537530"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SCGE MANAGEMENT"]
+    notes: "Sequoia Capital Global Equities public L/S ($3.2B med AUM, 22 med entries)."
+
+  - filer_id: bluespruce
+    canonical_name: "BlueSpruce Investments"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001600285"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["BLUESPRUCE INVESTMENTS"]
+    notes: "Tim Flannery concentrated fundamental L/S ($3.0B med AUM, 14 med entries)."
+
+  - filer_id: marsico_capital
+    canonical_name: "Marsico Capital Management"
+    style: "growth_tmt_ls"
+    status: "active"
+    cik: "0001055966"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["MARSICO CAPITAL"]
+    notes: "Tom Marsico concentrated growth ($2.9B med AUM, 85 med entries)."
+
+  # --- 5b. Additional Fundamental Value / Contrarian / Event L/S (17 funds) ---
+  - filer_id: eagle_capital
+    canonical_name: "Eagle Capital Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0000945631"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks:
+      - "0001600746" # Eagle Capital Management LLC (unrelated small RIA)
+    search_aliases: ["EAGLE CAPITAL MANAGEMENT"]
+    notes: "Boykin Curry concentrated fundamental value ($26.9B med AUM, 56 med entries)."
+
+  - filer_id: sanders_capital
+    canonical_name: "Sanders Capital"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001508097"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SANDERS CAPITAL"]
+    notes: "Lew Sanders concentrated fundamental value ($24.7B med AUM, 44 med entries)."
+
+  - filer_id: beutel_goodman
+    canonical_name: "Beutel, Goodman & Co"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001361974"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["BEUTEL, GOODMAN"]
+    notes: "Concentrated North American fundamental value ($13.8B med AUM, 67 med entries)."
+
+  - filer_id: fiduciary_mgmt
+    canonical_name: "Fiduciary Management Inc"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0000764532"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks:
+      - "0000319902" # Fiduciary Management Associates LLC (unrelated)
+      - "0001141800" # Trust & Fiduciary Management Services (unrelated)
+    search_aliases: ["FIDUCIARY MANAGEMENT INC"]
+    notes: "FMI concentrated value ($13.4B med AUM, 69 med entries)."
+
+  - filer_id: vulcan_value
+    canonical_name: "Vulcan Value Partners"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001556785"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["VULCAN VALUE PARTNERS"]
+    notes: "C.T. Fitzpatrick concentrated value ($10.9B med AUM, 46 med entries)."
+
+  - filer_id: yacktman
+    canonical_name: "Yacktman Asset Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0000905567"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["YACKTMAN ASSET"]
+    notes: "Concentrated quality value ($10.0B med AUM, 60 med entries)."
+
+  - filer_id: letko_brosseau
+    canonical_name: "Letko, Brosseau & Associates"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001297496"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["LETKO, BROSSEAU"]
+    notes: "Independent fundamental value ($7.3B med AUM, 100 med entries)."
+
+  - filer_id: lyrical_am
+    canonical_name: "Lyrical Asset Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001542302"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["LYRICAL ASSET"]
+    notes: "Andrew Wellington deep value ($6.6B med AUM, 34 med entries)."
+
+  - filer_id: greenhaven
+    canonical_name: "Greenhaven Associates"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0000846222"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["GREENHAVEN ASSOCIATES"]
+    notes: "Edgar Wachenheim concentrated value ($5.6B med AUM, 24 med entries)."
+
+  - filer_id: iridian_am
+    canonical_name: "Iridian Asset Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001033427"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["IRIDIAN ASSET"]
+    notes: "Concentrated corporate-change value ($5.5B med AUM, 73 med entries)."
+
+  - filer_id: causeway_capital
+    canonical_name: "Causeway Capital Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001165797"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["CAUSEWAY CAPITAL"]
+    notes: "Sarah Ketterer fundamental value ($5.1B med AUM, 85 med entries)."
+
+  - filer_id: senator_ig
+    canonical_name: "Senator Investment Group"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001443689"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SENATOR INVESTMENT GROUP"]
+    notes: "Doug Silverman fundamental event-driven L/S ($4.0B med AUM, 55 med entries)."
+
+  - filer_id: paulson_co
+    canonical_name: "Paulson & Co"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001035674"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["PAULSON & CO"]
+    notes: "Concentrated event/value ($3.9B med AUM, 36 med entries)."
+
+  - filer_id: shapiro_capital
+    canonical_name: "Shapiro Capital Management"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001177244"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SHAPIRO CAPITAL"]
+    notes: "Concentrated fundamental value ($3.8B med AUM, 72 med entries)."
+
+  - filer_id: fpr_partners
+    canonical_name: "FPR Partners"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001546190"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["FPR PARTNERS"]
+    notes: "Bob Peck & Andy Raab concentrated value ($3.8B med AUM, 17 med entries)."
+
+  - filer_id: southpoint
+    canonical_name: "Southpoint Capital Advisors"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0001319998"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SOUTHPOINT CAPITAL"]
+    notes: "Concentrated fundamental L/S ($3.7B med AUM, 38 med entries)."
+
+  - filer_id: donald_smith
+    canonical_name: "Donald Smith & Co"
+    style: "value_contrarian_ls"
+    status: "active"
+    cik: "0000814375"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["DONALD SMITH"]
+    notes: "Deep value fundamental equity ($3.6B med AUM, 65 med entries)."
+
+  # --- 5c. Additional Quality Compounders & Fundamental Generalists (17 funds) ---
+  - filer_id: magellan_am
+    canonical_name: "Magellan Asset Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001536105"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["MAGELLAN ASSET MANAGEMENT"]
+    notes: "Concentrated global quality compounders ($18.6B med AUM, 84 med entries)."
+
+  - filer_id: harding_loevner
+    canonical_name: "Harding Loevner"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0000928196"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["HARDING LOEVNER"]
+    notes: "Fundamental quality growth ($17.1B med AUM, 93 med entries)."
+
+  - filer_id: longview_partners
+    canonical_name: "Longview Partners"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001426092"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["LONGVIEW PARTNERS"]
+    notes: "Concentrated global quality ($15.3B med AUM, 25 med entries)."
+
+  - filer_id: generation_im
+    canonical_name: "Generation Investment Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001375534"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["GENERATION INVESTMENT"]
+    notes: "Concentrated long-horizon quality ($14.5B med AUM, 37 med entries)."
+
+  - filer_id: veritas_am
+    canonical_name: "Veritas Asset Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001541448"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["VERITAS ASSET MANAGEMENT"]
+    notes: "Concentrated real-return quality ($12.1B med AUM, 31 med entries)."
+
+  - filer_id: gardner_russo
+    canonical_name: "Gardner Russo & Quinn"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0000860643"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["GARDNER RUSSO"]
+    notes: "Tom Russo global franchise compounders ($11.0B med AUM, 88 med entries)."
+
+  - filer_id: findlay_park
+    canonical_name: "Findlay Park Partners"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001351950"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["FINDLAY PARK"]
+    notes: "Concentrated US quality equities ($10.1B med AUM, 56 med entries)."
+
+  - filer_id: jensen_im
+    canonical_name: "Jensen Investment Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001106129"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks:
+      - "0002044851" # Nabity-Jensen Investment Management (unrelated)
+    search_aliases: ["JENSEN INVESTMENT MANAGEMENT"]
+    notes: "High-ROE US quality compounders ($8.8B med AUM, 84 med entries)."
+
+  - filer_id: guardcap_am
+    canonical_name: "GuardCap Asset Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001732008"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["GUARDCAP ASSET"]
+    notes: "Concentrated global quality ($5.1B med AUM, 26 med entries)."
+
+  - filer_id: comgest_global
+    canonical_name: "Comgest Global Investors"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001574947"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["COMGEST GLOBAL"]
+    notes: "Long-horizon quality growth ($4.9B med AUM, 81 med entries)."
+
+  - filer_id: lindsell_train
+    canonical_name: "Lindsell Train"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001484150"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["LINDSELL TRAIN"]
+    notes: "Ultra-concentrated global franchises ($4.3B med AUM, 27 med entries)."
+
+  - filer_id: meritage_group
+    canonical_name: "Meritage Group"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001427119"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["MERITAGE GROUP"]
+    notes: "Concentrated fundamental equities ($4.2B med AUM, 28 med entries)."
+
+  - filer_id: coho_partners
+    canonical_name: "Coho Partners"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001350585"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["COHO PARTNERS"]
+    notes: "Concentrated defensive quality ($4.1B med AUM, 57 med entries)."
+
+  - filer_id: sound_shore
+    canonical_name: "Sound Shore Management"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0000820124"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SOUND SHORE MANAGEMENT"]
+    notes: "Concentrated fundamental value/quality ($3.5B med AUM, 37 med entries)."
+
+  - filer_id: stockbridge
+    canonical_name: "Stockbridge Partners"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001505183"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["STOCKBRIDGE PARTNERS"]
+    notes: "Berkshire Partners public equity arm ($3.5B med AUM, 14 med entries)."
+
+  - filer_id: scharf_inv
+    canonical_name: "Scharf Investments"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001463746"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SCHARF INVESTMENTS"]
+    notes: "Concentrated quality value ($3.3B med AUM, 49 med entries)."
+
+  - filer_id: luxor_capital
+    canonical_name: "Luxor Capital Group"
+    style: "quality_generalist"
+    status: "active"
+    cik: "0001316580"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["LUXOR CAPITAL"]
+    notes: "Christian Leone fundamental L/S ($3.3B med AUM, 52 med entries)."
+
+  # --- 5d. Additional Historical / Wound-Down 2015-Era Peers (12 funds -> 16 Closed Total) ---
+  - filer_id: vontobel_am
+    canonical_name: "Vontobel Asset Management"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0000928633"
+    predecessor_ciks: []
+    subsidiary_ciks:
+      - "0001588340" # Vontobel Holding Ltd. (parent reporting consolidation)
+      - "0001634222" # Vontobel Swiss Wealth Advisors AG (wealth affiliate)
+    unrelated_ciks: []
+    search_aliases: ["VONTOBEL ASSET MANAGEMENT"]
+    notes: "Historical quality growth manager ($13.6B med AUM, 2014..2024)."
+
+  - filer_id: thomaspartners
+    canonical_name: "ThomasPartners"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001263532"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["THOMASPARTNERS"]
+    notes: "Historical dividend-growth manager ($7.9B med AUM, 2014..2018)."
+
+  - filer_id: northern_cross
+    canonical_name: "Northern Cross"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001461201"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["NORTHERN CROSS"]
+    notes: "Historical concentrated global equity ($6.1B med AUM, 2014..2018)."
+
+  - filer_id: eton_park
+    canonical_name: "Eton Park Capital Management"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001314588"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["ETON PARK"]
+    notes: "Eric Mindich wound-down 2015-era hedge fund ($5.7B med AUM, 2014..2017)."
+
+  - filer_id: santa_barbara_am
+    canonical_name: "Santa Barbara Asset Management"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001109426"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SANTA BARBARA ASSET"]
+    notes: "Historical concentrated dividend-growth manager ($5.7B med AUM, 2014..2019)."
+
+  - filer_id: spo_advisory
+    canonical_name: "SPO Advisory Corp"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0000919468"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["SPO ADVISORY"]
+    notes: "John Scully wound-down concentrated value fund ($5.1B med AUM, 2014..2019)."
+
+  - filer_id: holland_capital
+    canonical_name: "Holland Capital Management"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0000936939"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["HOLLAND CAPITAL MANAGEMENT"]
+    notes: "Historical concentrated growth manager ($3.8B med AUM, 2014..2017)."
+
+  - filer_id: international_value
+    canonical_name: "International Value Advisers"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001456417"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["INTERNATIONAL VALUE ADVISERS"]
+    notes: "Charles de Vaulx wound-down value fund ($3.3B med AUM, 2014..2020)."
+
+  - filer_id: trilogy_global
+    canonical_name: "Trilogy Global Advisors"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001128573"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["TRILOGY GLOBAL"]
+    notes: "Historical fundamental equity manager ($3.0B med AUM, 2014..2018)."
+
+  - filer_id: omega_advisors
+    canonical_name: "Omega Advisors"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0000898202"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["OMEGA ADVISORS"]
+    notes: "Leon Cooperman converted-to-family-office hedge fund ($2.9B med AUM, 2014..2018)."
+
+  - filer_id: hitchwood_capital
+    canonical_name: "Hitchwood Capital Management"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001611613"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["HITCHWOOD CAPITAL"]
+    notes: "James Crichton wound-down fundamental L/S ($2.9B med AUM, 2014..2023)."
+
+  - filer_id: ivory_im
+    canonical_name: "Ivory Investment Management"
+    style: "closed_peer"
+    status: "closed"
+    cik: "0001116544"
+    predecessor_ciks: []
+    subsidiary_ciks: []
+    unrelated_ciks: []
+    search_aliases: ["IVORY INVESTMENT"]
+    notes: "Curtis Macnguyen wound-down fundamental L/S ($2.9B med AUM, 2014..2018)."

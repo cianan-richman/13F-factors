@@ -35,3 +35,67 @@ blue_ridge,Blue Ridge Capital,closed_peer,closed,0001062589,0001062589,20,0,2015
 melvin_capital,Melvin Capital Management,closed_peer,closed,0001628110,0001628110,36,2,2015-02-17,2023-10-05,0,,,Melvin Capital Management LP,False
 highfields_capital,Highfields Capital Management,closed_peer,closed,0001079563,0001079563,24,3,2015-02-13,2020-11-16,0,,,HIGHFIELDS CAPITAL MANAGEMENT LP,False
 tourbillon_capital,Tourbillon Capital Partners,closed_peer,closed,0001592476,0001592476,17,2,2015-02-17,2019-02-14,0,,,"Tourbillon Capital Partners LP; Tourbillon Capital Partners, L.P.",True
+gqg_partners,GQG Partners,growth_tmt_ls,active,0001697233,0001697233,40,5,2017-02-14,2026-11-13,0,,,GQG Partners LLC,False
+edgewood,Edgewood Management,growth_tmt_ls,active,0000860561,0000860561,48,0,2015-02-06,2026-11-12,0,,,EDGEWOOD MANAGEMENT LLC,False
+polen_capital,Polen Capital Management,growth_tmt_ls,active,0001034524,0001034524,48,3,2015-02-17,2026-11-13,0,,,POLEN CAPITAL MANAGEMENT LLC,False
+jackson_square,Jackson Square Partners,growth_tmt_ls,active,0001605911,0001605911,45,1,2015-02-10,2026-02-13,0,,,"Jackson Square Partners, LLC",False
+durable_capital,Durable Capital Partners,growth_tmt_ls,active,0001798849,0001798849,28,1,2020-02-13,2026-11-16,0,,,Durable Capital Partners LP,False
+dsm_capital,DSM Capital Partners,growth_tmt_ls,active,0001214639,0001214639,48,0,2015-02-12,2026-11-16,0,,,DSM CAPITAL PARTNERS LLC,False
+pointstate,PointState Capital,growth_tmt_ls,active,0001509842,0001509842,48,1,2015-02-17,2026-11-16,0,,,PointState Capital LP,False
+disciplined_growth,Disciplined Growth Investors,growth_tmt_ls,active,0001050442,0001050442,48,0,2015-02-09,2026-11-16,0,,,DISCIPLINED GROWTH INVESTORS INC /MN,False
+hhlr_hillhouse,HHLR Advisors (Hillhouse),growth_tmt_ls,active,0001762304,0001510589;0001762304,48,0,2015-02-17,2026-11-16,0,,,"Hillhouse Capital Management, Ltd.; Hillhouse Capital Advisors, Ltd.; HILLHOUSE CAPITAL ADVISORS, LTD.; HHLR ADVISORS, LTD.",True
+par_capital,PAR Capital Management,growth_tmt_ls,active,0001051359,0001051359,48,1,2015-02-17,2026-11-16,0,,,PAR CAPITAL MANAGEMENT INC,False
+candlestick,Candlestick Capital Management,growth_tmt_ls,active,0001789779,0001789779,25,0,2020-02-14,2026-02-12,0,,,Candlestick Capital Management LP,False
+skye_global,Skye Global Management,growth_tmt_ls,active,0001675884,0001675884,36,1,2018-02-13,2026-11-16,0,,,Skye Global Management LP,False
+matrix_capital,Matrix Capital Management,growth_tmt_ls,active,0001410830,0001410830,48,0,2015-02-17,2026-11-16,0,,,"Matrix Capital Management Company, LP",False
+aspex_management,Aspex Management,growth_tmt_ls,active,0001768375,0001768375,28,0,2020-02-05,2026-11-16,0,,,Aspex Management (HK) Ltd,False
+atreides,Atreides Management,growth_tmt_ls,active,0001777813,0001777813,28,1,2020-02-14,2026-11-16,0,,,"Atreides Management, LP",False
+scge_management,SCGE Management,growth_tmt_ls,active,0001537530,0001537530,48,2,2015-02-17,2026-11-13,0,,,"SCGE MANAGEMENT, L.P.",False
+bluespruce,BlueSpruce Investments,growth_tmt_ls,active,0001600285,0001600285,48,1,2015-02-17,2026-11-16,0,,,"BlueSpruce Investments, LP",False
+marsico_capital,Marsico Capital Management,growth_tmt_ls,active,0001055966,0001055966,48,0,2015-02-13,2026-11-12,0,,,MARSICO CAPITAL MANAGEMENT LLC,False
+eagle_capital,Eagle Capital Management,value_contrarian_ls,active,0000945631,0000945631,48,1,2015-02-17,2026-11-16,0,,,EAGLE CAPITAL MANAGEMENT LLC,False
+sanders_capital,Sanders Capital,value_contrarian_ls,active,0001508097,0001508097,48,77,2015-02-03,2026-11-02,0,,,"Sanders Capital, LLC",False
+beutel_goodman,"Beutel, Goodman & Co",value_contrarian_ls,active,0001361974,0001361974,48,10,2015-01-20,2026-11-04,0,,,"Beutel, Goodman & Co Ltd.",False
+fiduciary_mgmt,Fiduciary Management Inc,value_contrarian_ls,active,0000764532,0000764532,48,1,2015-02-13,2026-11-13,0,,,FIDUCIARY MANAGEMENT INC /WI/,False
+vulcan_value,Vulcan Value Partners,value_contrarian_ls,active,0001556785,0001556785,48,4,2015-02-17,2026-11-10,0,,,"Vulcan Value Partners, LLC",False
+yacktman,Yacktman Asset Management,value_contrarian_ls,active,0000905567,0000905567,48,0,2015-02-02,2026-11-02,0,,,YACKTMAN ASSET MANAGEMENT LP,False
+letko_brosseau,"Letko, Brosseau & Associates",value_contrarian_ls,active,0001297496,0001297496,48,1,2015-02-10,2026-11-06,0,,,"LETKO, BROSSEAU & ASSOCIATES INC",False
+lyrical_am,Lyrical Asset Management,value_contrarian_ls,active,0001542302,0001542302,48,1,2015-02-13,2026-11-13,0,,,LYRICAL ASSET MANAGEMENT LP,False
+greenhaven,Greenhaven Associates,value_contrarian_ls,active,0000846222,0000846222,48,1,2015-02-04,2026-10-26,0,,,GREENHAVEN ASSOCIATES INC,False
+iridian_am,Iridian Asset Management,value_contrarian_ls,active,0001033427,0001033427,48,1,2015-02-10,2026-10-23,0,,,IRIDIAN ASSET MANAGEMENT LLC/CT,False
+causeway_capital,Causeway Capital Management,value_contrarian_ls,active,0001165797,0001165797,48,3,2015-02-17,2026-11-13,0,,,CAUSEWAY CAPITAL MANAGEMENT LLC,False
+senator_ig,Senator Investment Group,value_contrarian_ls,active,0001443689,0001443689,48,2,2015-02-17,2026-11-12,0,,,Senator Investment Group LP,False
+paulson_co,Paulson & Co,value_contrarian_ls,active,0001035674,0001035674,48,2,2015-02-17,2026-11-16,0,,,PAULSON & CO INC; PAULSON & CO. INC.,True
+shapiro_capital,Shapiro Capital Management,value_contrarian_ls,active,0001177244,0001177244,48,1,2015-02-13,2026-11-12,0,,,SHAPIRO CAPITAL MANAGEMENT LLC,False
+fpr_partners,FPR Partners,value_contrarian_ls,active,0001546190,0001546190,42,0,2015-02-12,2025-05-14,0,,,FPR PARTNERS LLC,False
+southpoint,Southpoint Capital Advisors,value_contrarian_ls,active,0001319998,0001319998,48,2,2015-02-17,2026-11-16,0,,,Southpoint Capital Advisors LP,False
+donald_smith,Donald Smith & Co,value_contrarian_ls,active,0000814375,0000814375,48,9,2015-02-03,2026-11-13,0,,,"DONALD SMITH & CO., INC.",False
+magellan_am,Magellan Asset Management,quality_generalist,active,0001536105,0001536105,48,1,2015-02-12,2026-11-16,0,,,Magellan Asset Management Ltd; Barrenjoey Investment Management Ltd,True
+harding_loevner,Harding Loevner,quality_generalist,active,0000928196,0000928196,48,2,2015-01-12,2026-11-16,0,,,HARDING LOEVNER LP,False
+longview_partners,Longview Partners,quality_generalist,active,0001426092,0001426092,48,7,2015-02-06,2026-11-13,0,,,Longview Partners (Guernsey) LTD,False
+generation_im,Generation Investment Management,quality_generalist,active,0001375534,0001375534,48,1,2015-02-17,2026-11-16,0,,,GENERATION INVESTMENT MANAGEMENT LLP,False
+veritas_am,Veritas Asset Management,quality_generalist,active,0001541448,0001541448,48,1,2015-01-22,2026-11-05,0,,,Veritas Asset Management LLP,False
+gardner_russo,Gardner Russo & Quinn,quality_generalist,active,0000860643,0000860643,48,0,2015-02-12,2026-11-12,0,,,GARDNER RUSSO & GARDNER LLC; GARDNER RUSSO & QUINN LLC,True
+findlay_park,Findlay Park Partners,quality_generalist,active,0001351950,0001351950,48,2,2015-02-12,2026-11-12,0,,,Findlay Park Partners LLP,False
+jensen_im,Jensen Investment Management,quality_generalist,active,0001106129,0001106129,48,7,2015-01-29,2026-11-10,0,,,JENSEN INVESTMENT MANAGEMENT INC,False
+guardcap_am,GuardCap Asset Management,quality_generalist,active,0001732008,0001732008,36,1,2018-02-20,2026-11-06,0,,,GUARDCAP ASSET MANAGEMENT Ltd,False
+comgest_global,Comgest Global Investors,quality_generalist,active,0001574947,0001574947,48,4,2015-02-11,2026-11-09,0,,,COMGEST GLOBAL INVESTORS S.A.S.,False
+lindsell_train,Lindsell Train,quality_generalist,active,0001484150,0001484150,48,1,2015-02-03,2026-11-02,0,,,Lindsell Train Ltd,False
+meritage_group,Meritage Group,quality_generalist,active,0001427119,0001427119,48,1,2015-02-13,2026-11-13,0,,,Meritage Group LP,False
+coho_partners,Coho Partners,quality_generalist,active,0001350585,0001350585,44,3,2015-02-11,2025-10-14,0,,,"Coho Partners, Ltd.",False
+sound_shore,Sound Shore Management,quality_generalist,active,0000820124,0000820124,48,0,2015-02-06,2026-11-06,0,,,SOUND SHORE MANAGEMENT INC /CT/,False
+stockbridge,Stockbridge Partners,quality_generalist,active,0001505183,0001505183,48,1,2015-02-17,2026-11-13,0,,,Stockbridge Partners LLC,False
+scharf_inv,Scharf Investments,quality_generalist,active,0001463746,0001463746,48,1,2015-02-13,2026-11-12,0,,,"SCHARF INVESTMENTS, LLC",False
+luxor_capital,Luxor Capital Group,quality_generalist,active,0001316580,0001316580,48,1,2015-02-17,2026-11-16,0,,,"Luxor Capital Group, LP",False
+vontobel_am,Vontobel Asset Management,closed_peer,closed,0000928633,0000928633,38,0,2015-02-18,2024-05-15,0,,,VONTOBEL ASSET MANAGEMENT INC,False
+thomaspartners,ThomasPartners,closed_peer,closed,0001263532,0001263532,14,8,2015-02-17,2018-05-02,0,,,"THOMASPARTNERS, INC.",False
+northern_cross,Northern Cross,closed_peer,closed,0001461201,0001461201,16,0,2015-02-12,2018-11-09,0,,,"Northern Cross, LLC",False
+eton_park,Eton Park Capital Management,closed_peer,closed,0001314588,0001314588,11,0,2015-02-17,2017-07-31,0,,,"Eton Park Capital Management, L.P.",False
+santa_barbara_am,Santa Barbara Asset Management,closed_peer,closed,0001109426,0001109426,18,0,2015-02-13,2019-05-14,0,,,"SANTA BARBARA ASSET MANAGEMENT, LLC",False
+spo_advisory,SPO Advisory Corp,closed_peer,closed,0000919468,0000919468,18,0,2015-02-17,2019-04-16,0,,,SPO ADVISORY CORP,False
+holland_capital,Holland Capital Management,closed_peer,closed,0000936939,0000936939,11,0,2015-01-29,2017-08-14,0,,,HOLLAND CAPITAL MANAGEMENT LLC,False
+international_value,International Value Advisers,closed_peer,closed,0001456417,0001456417,25,3,2015-02-13,2021-02-12,0,,,"International Value Advisers, LLC",False
+trilogy_global,Trilogy Global Advisors,closed_peer,closed,0001128573,0001128573,17,0,2015-02-05,2019-02-08,0,,,TRILOGY GLOBAL ADVISORS LP,False
+omega_advisors,Omega Advisors,closed_peer,closed,0000898202,0000898202,17,1,2015-02-17,2019-02-14,0,,,Omega Advisors Inc.,False
+hitchwood_capital,Hitchwood Capital Management,closed_peer,closed,0001611613,0001611613,34,0,2015-02-17,2023-05-12,0,,,Hitchwood Capital Management LP,False
+ivory_im,Ivory Investment Management,closed_peer,closed,0001116544,0001116544,16,1,2015-02-13,2018-11-14,0,,,"IVORY INVESTMENT MANAGEMENT. L.P.; IVORY INVESTMENT MANAGEMENT, LLC",True

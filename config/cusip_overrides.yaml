@@ -75,3 +75,9 @@ overrides:
     share_class_figi: "BBG004KDL523"
     security_type2: "Common Stock"
     notes: "Platform Specialty Products -> Element Solutions Inc (28618M106) rename in Jan 2019."
+
+  "H84989104":
+    ticker: "TEL"
+    share_class_figi: "BBG01Q08MMX4"
+    security_type2: "Common Stock"
+    notes: "TE Connectivity Ltd (Swiss) -> TE Connectivity PLC (G87052109, Irish) 2024 re-domiciliation."

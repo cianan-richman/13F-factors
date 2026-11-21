@@ -379,12 +379,53 @@ def ingest_market_data(
             f"Benchmark cache missing at {spy_cache}. Run without --process-only first."
         )
 
-    # 2. Equity batches (deterministic batch files keyed by batch index + size)
-    batches = [tickers[i : i + batch_size] for i in range(0, len(tickers), batch_size)]
+    # 2. Load any already-cached tickers (from prior batches or prices_output_path) so universe
+    #    expansions NEVER re-download already-fetched tickers from Yahoo Finance!
+    batch_frames: list[pd.DataFrame] = []
+    cached_tickers: set[str] = set()
+    target_set = set(tickers)
+    if not force_refresh:
+        if prices_output_path.exists():
+            try:
+                prev_df = pd.read_parquet(prices_output_path)
+                if not prev_df.empty and "yahoo_ticker" in prev_df.columns:
+                    keep_cols = [c for c in prev_df.columns if c != "beta_252d"]
+                    prev_sub = prev_df.loc[prev_df["yahoo_ticker"].isin(target_set), keep_cols]
+                    if not prev_sub.empty:
+                        batch_frames.append(prev_sub)
+                        cached_tickers.update(prev_sub["yahoo_ticker"].unique().tolist())
+            except Exception:
+                pass
+        for existing_b in sorted(batch_dir.glob("*.parquet")):
+            if existing_b.name == spy_cache.name:
+                continue
+            try:
+                eb = pd.read_parquet(existing_b)
+                if not eb.empty and "yahoo_ticker" in eb.columns:
+                    new_part = eb[
+                        eb["yahoo_ticker"].isin(target_set)
+                        & (~eb["yahoo_ticker"].isin(cached_tickers))
+                    ]
+                    if not new_part.empty:
+                        batch_frames.append(new_part)
+                        cached_tickers.update(new_part["yahoo_ticker"].unique().tolist())
+            except Exception:
+                continue
+
+    missing_tickers = [t for t in tickers if t not in cached_tickers]
+    logger.info(
+        "yfinance incremental cache: %d already cached, %d remaining tickers to query.",
+        len(cached_tickers),
+        len(missing_tickers),
+    )
+
+    # 3. Equity batches for missing tickers only (deterministic hash per ticker group)
+    batches = [
+        missing_tickers[i : i + batch_size] for i in range(0, len(missing_tickers), batch_size)
+    ]
     pbar = (
         tqdm(total=len(batches), desc="yfinance batches", unit="batch") if show_progress else None
     )
-    batch_frames: list[pd.DataFrame] = []
 
     try:
         for b_idx, batch in enumerate(batches):

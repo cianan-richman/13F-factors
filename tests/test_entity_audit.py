@@ -93,7 +93,7 @@ def _sample_index() -> pd.DataFrame:
 
 def test_real_filers_yaml_passes_validation() -> None:
     cfg = load_config(CONFIG_DIR)
-    assert len(cfg.filers) == 36
+    assert len(cfg.filers) == 100
     validate_filers_config(cfg.filers)
 
 

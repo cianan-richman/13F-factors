@@ -17,13 +17,16 @@ edgar:
     - "13F-HR/A"
 
 universe:
-  min_market_cap_usd: 2_000_000_000   # $2B point-in-time market cap floor (SEC companyfacts)
-  min_adv_20d_usd: 10_000_000         # $10M 20-day ADV floor
-  exclude_put_call: true              # Strictly long common equity rows only
+  min_seasoning_days: 252                  # > 1 trading year strictly prior to query_date
+  threshold_anchor_date: "2014-12-31"      # Strictly pre-IS anchor (zero forward look)
+  threshold_spy_sma_days: 60               # Trailing 60d SMA of SPY raw_close ending t-1
+  anchor_min_market_cap_usd: 1_000_000_000 # $1.0B on 2014-12-31, scaled forward by SPY price level
+  anchor_min_adv_20d_usd: 5_000_000        # $5.0M on 2014-12-31 (constant 0.5% daily turnover floor)
+  exclude_put_call: true                   # Strictly long common equity rows only
   allowed_share_types:
     - "SH"
   allowed_security_types:
-    - "Common Stock"                  # Exclude REITs, ETFs, ADRs, SPAC units, warrants
+    - "Common Stock"                       # Exclude REITs, ETFs, ADRs, SPAC units, warrants
 
 execution:
   lag_trading_days: 1                 # Filing accepted day T -> trade at T+1 MOC

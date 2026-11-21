@@ -476,6 +476,14 @@ def parse_filing_submission(
             applied_multiplier = 1
             value_unit_corrected = True
             value_unit_reason = "pre_2023_reported_in_dollars"
+        elif (
+            statutory_multiplier == 1000
+            and stat_med < 1.0
+            and 1.0 <= raw_med * 1_000_000.0 <= 5_000.0
+        ):
+            applied_multiplier = 1_000_000
+            value_unit_corrected = True
+            value_unit_reason = "pre_2023_reported_in_millions"
 
         if value_unit_corrected:
             for r in holdings_rows:
