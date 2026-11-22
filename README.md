@@ -38,10 +38,12 @@ cp .env.example .env
   ```bash
   SEC_USER_AGENT="FirstName LastName your.email@domain.com"
   ```
-- **`OPENFIGI_API_KEY` (optional, recommended for faster CUSIP mapping):**
+- **`OPENFIGI_API_KEY` (optional, strongly recommended — saves ~25 minutes on a cold clone):**
   1. Create a free account at https://www.openfigi.com/api and copy your API key.
   2. Add `OPENFIGI_API_KEY="your-key-here"` to `.env`.
-  3. **Automatic keyless fallback:** If left blank, `src.ingest.cusip_mapper` automatically falls back to OpenFIGI's free unauthenticated tier (`10 CUSIPs/batch`, incrementally checkpointed to `data/raw/openfigi/cusip_cache.jsonl` so interrupted runs resume cleanly).
+  3. **Timing impact & automatic keyless fallback:**
+     - **With free `OPENFIGI_API_KEY`:** `100 CUSIPs/batch` across 4 workers maps all ~6,150 CUSIPs in **~20–30 seconds** → full cold-clone `--stage all` takes **~15–20 minutes**.
+     - **Without `OPENFIGI_API_KEY` (keyless fallback):** `src.ingest.cusip_mapper` automatically falls back to OpenFIGI's unauthenticated tier (`10 CUSIPs/batch`, 1 worker, ~23 req/min), which adds **~27 minutes** for CUSIP mapping alone → full cold-clone `--stage all` takes **~40–45 minutes** (incrementally checkpointed per batch to `data/raw/openfigi/cusip_cache.jsonl` so interrupted runs resume cleanly).
 
 ---
 
@@ -67,8 +69,8 @@ ruff check .
 
 > **Note:** To explore or re-run the pre-rendered results interactively after building the panel, open [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) in Jupyter / VS Code using the `.venv` kernel. `config/settings.yaml` pins `window.end_date: "2026-11-20"` **inclusively** across `master.idx` (`date_filed <= end_date`), `yfinance` (translated to exclusive `end="2026-11-21"` + clipped), and `companyfacts` (`filed_date <= end_date`) for deterministic cold-clone reproducibility (SEC's `company_tickers.json` is the sole unpinned live ticker-to-CIK registry; see [docs/data_governance.md](docs/data_governance.md) Section 7).
 
-**Expected Cold-Clone Runtime:**
-- `--stage ingest`: ~10–15 minutes with a free `OPENFIGI_API_KEY` (~25 minutes keyless); `< 30 seconds` when re-run from cached raw files.
+**Expected Cold-Clone Runtime (`--stage all`: ~15–20 min with free `OPENFIGI_API_KEY` | ~40–45 min keyless):**
+- `--stage ingest`: **~10–15 minutes** with a free `OPENFIGI_API_KEY` (OpenFIGI takes ~20–30s) or **~35–40 minutes** keyless (OpenFIGI's unauthenticated `10 CUSIPs/batch` tier adds ~27 min across ~6,150 CUSIPs); `< 30 seconds` when re-run from cached raw files.
 - `--stage pit`: ~3 minutes (materializes `3.71M` daily rows across `2,981` US trading days, avg `683.6` eligible domestic US stocks/day, and verifies bit-for-bit parity `<= 6.54e-13`).
 - `--stage factors`: ~45 seconds (strictly In-Sample `2015–2023`, zero OOS touch).
 - `--stage backtest`: ~15 seconds (Train horizon & regime studies + frozen OOS `2024+` evaluation across all 3 locked expressions).
