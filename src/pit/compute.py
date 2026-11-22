@@ -72,6 +72,7 @@ logger = logging.getLogger(__name__)
 # Stage 3 defaults
 DEFAULT_BETA_WINDOW = 252
 DEFAULT_BETA_MIN_PERIODS = 250  # Covers 2015-01-02 (251 prior 2014 daily returns) cleanly
+DEFAULT_BETA_MAX_DAILY_RET = 5.0  # Mask >500% single-day bankruptcy-reorg / missing-split glitches
 DEFAULT_MAX_QTR_GAP_DAYS = 105  # Max calendar days between consecutive quarterly report dates
 DEFAULT_WINDDOWN_DROP_PCT = 0.75  # Exclude >75% single-quarter book collapses from flow deltas
 DEFAULT_TRADE_NOISE_THRESHOLD = 0.01  # >=1% share change counts as active buy/sell
@@ -84,17 +85,24 @@ def compute_masked_rolling_beta_lag1(
     *,
     window: int = DEFAULT_BETA_WINDOW,
     min_periods: int = DEFAULT_BETA_MIN_PERIODS,
+    max_daily_ret: float = DEFAULT_BETA_MAX_DAILY_RET,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Compute exact masked trailing OLS beta strictly EXCLUDING `query_date` (`[t-W, t-1]`).
 
-    Masks `spy_ret` to the exact dates where each stock has a valid return before computing
-    `Var(r_spy)` so any mid-window trading halt or missing price never mismatches numerator
-    and denominator date sets. Shifts the final rolling result forward by 1 trading day so
-    row `t` uses strictly returns up to `t - 1`.
+    Masks `spy_ret` to the exact dates where each stock has a valid, non-corrupted return
+    (`-0.99 < ret <= max_daily_ret`, filtering out Chapter-11 reorganization ticker-reuse
+    discontinuities like +25,733% single-day jumps while preserving all genuine equity moves)
+    before computing `Var(r_spy)` so numerator and denominator date sets always match. Shifts
+    the final rolling result forward by 1 trading day so row `t` uses strictly `[t-W, t-1]`.
     """
     aligned_spy = spy_ret.reindex(ret_wide.index).astype(np.float64)
     r_mat = ret_wide.astype(np.float64)
-    valid = r_mat.notna() & aligned_spy.notna().to_numpy()[:, None]
+    valid = (
+        r_mat.notna()
+        & aligned_spy.notna().to_numpy()[:, None]
+        & (r_mat > -0.99)
+        & (r_mat <= max_daily_ret)
+    )
 
     x = r_mat.where(valid)
     y_mat = pd.DataFrame(

@@ -657,3 +657,130 @@ def test_dynamic_spy_thresholds_are_strictly_pit_with_zero_lookahead() -> None:
     assert np.isclose(th_future["spy_threshold_scale"], th_base["spy_threshold_scale"])
     assert np.isclose(th_future["min_mcap_threshold_usd"], th_base["min_mcap_threshold_usd"])
 
+
+def test_pit_xbrl_unit_scale_outlier_scrubbing_has_zero_lookahead() -> None:
+    """Strictly PIT XBRL scale scrubber drops 1e6x/1e3x/1e-3x typos with zero lookahead."""
+    cal = _make_trading_cal("2020-01-02", periods=120)
+    spy = _build_synthetic_market_prices("SPY", cal, base_raw_close=300.0)
+    # Stock price = $100, raw_volume = 500k -> adv_20d_usd = $50M/day
+    mp_mega = _build_synthetic_market_prices("MEGA", cal, base_raw_close=100.0)
+    mp_mid = _build_synthetic_market_prices("MIDC", cal, base_raw_close=100.0)
+    mp_down = _build_synthetic_market_prices("DOWN", cal, base_raw_close=100.0)
+    mp = pd.concat([mp_mega, mp_mid, mp_down], ignore_index=True)
+
+    so = pd.DataFrame(
+        [
+            # 1) MEGA: Legitimate $2.5T mega-cap (25B shares * $100, adv=$50M -> turn=2e-5? wait
+            #    make MEGA ADV high enough or shares=20B -> $2T & set MEGA raw_volume=100M below)
+            {
+                "yahoo_ticker": "MEGA",
+                "issuer_cik": "0000000001",
+                "filed_date": cal[20],
+                "end_date": cal[15],
+                "shares_outstanding": 20_000_000_000.0,  # $2.0T legit mega-cap
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            # 2) MIDC: Clean Q1 filing (50M shares -> $5B mcap, adv=$50M -> 1% turnover)
+            {
+                "yahoo_ticker": "MIDC",
+                "issuer_cik": "0000000002",
+                "filed_date": cal[20],
+                "end_date": cal[15],
+                "shares_outstanding": 50_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            # MIDC Q2: 1,000,000x typo on DEI tag + clean US-GAAP tag in SAME filing
+            {
+                "yahoo_ticker": "MIDC",
+                "issuer_cik": "0000000002",
+                "filed_date": cal[50],
+                "end_date": cal[45],
+                "shares_outstanding": 50_000_000_000_000.0,  # $5,000T typo!
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "MIDC",
+                "issuer_cik": "0000000002",
+                "filed_date": cal[50],
+                "end_date": cal[45],
+                "shares_outstanding": 51_000_000.0,  # Clean fallback tag
+                "form": "10-Q",
+                "tag_source": "us-gaap:CommonStockSharesOutstanding",
+                "tag_priority": 2,
+            },
+            # MIDC Q3: Sub-$4T 1,000x typo (50B shares -> $5T? No, 30B shares -> $3T < $4T cap,
+            # but adv=$50M / $3T = 1.67e-5 < 2.5e-5 -> caught by turnover guard!)
+            {
+                "yahoo_ticker": "MIDC",
+                "issuer_cik": "0000000002",
+                "filed_date": cal[80],
+                "end_date": cal[75],
+                "shares_outstanding": 30_000_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            # 3) DOWN: Clean Q1 (80M shares -> $8B), then 1e-3x typo in Q2 (80,000 shares -> $8M,
+            #    adv=$50M / $8M = 6.25 > 2.5 -> caught by downward turnover guard!)
+            {
+                "yahoo_ticker": "DOWN",
+                "issuer_cik": "0000000003",
+                "filed_date": cal[20],
+                "end_date": cal[15],
+                "shares_outstanding": 80_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "DOWN",
+                "issuer_cik": "0000000003",
+                "filed_date": cal[50],
+                "end_date": cal[45],
+                "shares_outstanding": 80_000.0,  # 1e-3x typo!
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+        ]
+    )
+    # Give MEGA realistic mega-cap liquidity ($5B/day ADV -> 0.25% daily turnover)
+    mp.loc[mp["yahoo_ticker"] == "MEGA", "adv_20d_usd"] = 5_000_000_000.0
+    cm = pd.DataFrame(
+        columns=["cusip", "security_id", "yahoo_ticker", "figi_name", "is_us_common_stock"]
+    )
+
+    store = PitMarketStore(mp, spy, so, cm)
+
+    # 1) Legitimate mega-cap kept untouched
+    mega_res = store.get_pit_shares_outstanding("MEGA", cal[30])
+    assert np.isclose(mega_res["shares_out_pit"], 20_000_000_000.0)
+
+    # 2a) MIDC Q2 DEI 1e6x typo dropped -> seamlessly falls back to clean US-GAAP tag (51M)
+    mid_q2 = store.get_pit_shares_outstanding("MIDC", cal[60])
+    assert np.isclose(mid_q2["shares_out_pit"], 51_000_000.0)
+
+    # 2b) MIDC Q3 sub-$4T 1e3x typo dropped -> carries forward clean Q2 (51M)
+    mid_q3 = store.get_pit_shares_outstanding("MIDC", cal[90])
+    assert np.isclose(mid_q3["shares_out_pit"], 51_000_000.0)
+
+    # 3) DOWN Q2 1e-3x typo dropped -> carries forward clean Q1 (80M)
+    down_q2 = store.get_pit_shares_outstanding("DOWN", cal[60])
+    assert np.isclose(down_q2["shares_out_pit"], 80_000_000.0)
+
+    # 4) Zero lookahead: wild price/ADV spike strictly AFTER cal[50] must NOT alter cal[50] scrub
+    mp_future = mp.copy()
+    mask_fut = (mp_future["yahoo_ticker"] == "MIDC") & (mp_future["date"] > cal[50])
+    mp_future.loc[mask_fut, "raw_close"] = 10_000.0
+    store_fut = PitMarketStore(mp_future, spy, so, cm)
+    assert np.isclose(
+        store_fut.get_pit_shares_outstanding("MIDC", cal[60])["shares_out_pit"],
+        mid_q2["shares_out_pit"],
+    )
+

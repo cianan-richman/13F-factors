@@ -100,6 +100,27 @@ def test_beta_lag1_matches_exact_ols_and_excludes_query_date() -> None:
     assert np.isclose(beta_mut.at[qdt, "AAA"], beta_base.at[qdt, "AAA"], atol=1e-12)
 
 
+def test_beta_lag1_masks_bankruptcy_reorg_return_discontinuity() -> None:
+    """Single-day >500% Chapter-11 reorg discontinuity (e.g. CHRD +25,733%) must be masked."""
+    rng = np.random.default_rng(123)
+    cal = _make_cal("2022-01-03", periods=280)
+    r_spy = rng.normal(0.0004, 0.01, size=len(cal))
+    r_spy[0] = np.nan
+    r_stk = 1.40 * r_spy + rng.normal(0.0, 0.004, size=len(cal))
+    r_stk[100] = 257.33  # Simulated Yahoo Finance pre/post-Ch.11 splice (+25,733%)
+
+    ret_wide = pd.DataFrame({"CHRD": r_stk}, index=cal)
+    spy_s = pd.Series(r_spy, index=cal)
+    beta_lag1, n_obs = compute_masked_rolling_beta_lag1(
+        ret_wide, spy_s, window=252, min_periods=250
+    )
+
+    qdt = cal[265]
+    # Glitch day is excluded -> 251 valid observations and clean beta near 1.40 (not -90!)
+    assert int(n_obs.at[qdt, "CHRD"]) == 251
+    assert 1.1 < float(beta_lag1.at[qdt, "CHRD"]) < 1.7
+
+
 def test_qoq_split_zero_trade_gives_zero_delta_and_zero_active_weight_shift() -> None:
     """Across a 10:1 split + 100% rally with zero actual trades, delta_shares and active_w = 0."""
     rng = np.random.default_rng(7)

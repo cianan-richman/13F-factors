@@ -61,6 +61,12 @@ DEFAULT_ANCHOR_MCAP_USD = 1_000_000_000.0  # $1.0B on 2014-12-31 (scaled forward
 DEFAULT_ANCHOR_ADV_USD = 5_000_000.0  # $5.0M on 2014-12-31 (constant 0.5% turnover floor)
 DEFAULT_MAX_SHARES_AGE_DAYS = 460  # Accommodates annual 20-F filers; drops multi-yr stale XBRL
 DEFAULT_UNEQUAL_CLASS_PRICE_RATIO = 2.5  # Detects BRK-A/BRK-B-style unequal economic ratios
+# Strictly PIT SEC XBRL unit-scale typo guards (catches 1e3x/1e6x/1e9x & 1e-3x inline scale typos)
+DEFAULT_XBRL_MAX_MCAP_ANCHOR_USD = 4_000_000_000_000.0  # $4T on 2014-12-31, scaled by SPY SMA60
+DEFAULT_XBRL_UPWARD_TYPO_MIN_MCAP_USD = 50_000_000_000.0  # Check tiny-turnover typos above $50B
+DEFAULT_XBRL_UPWARD_TYPO_MIN_ADV_USD = 5_000_000.0  # Liquid US-traded floor (avoids OTC F-shares)
+DEFAULT_XBRL_UPWARD_TYPO_MAX_TURNOVER = 2.5e-5  # <0.0025%/day implies 1000x upward share typo
+DEFAULT_XBRL_DOWNWARD_TYPO_MIN_TURNOVER = 2.5  # >250%/day sustained 20d ADV implies 1e-3x typo
 
 
 class PitMarketStore:
@@ -169,6 +175,8 @@ class PitMarketStore:
             so = so.dropna(subset=["filed_date", "end_date", "shares_outstanding"]).copy()
             # Scrub SEC XBRL future-dated typos (e.g., AAL end_date=2027-07-17 filed 2026-07-23)
             so = so[(so["shares_outstanding"] > 0) & (so["end_date"] <= so["filed_date"])].copy()
+            # Scrub SEC XBRL unit-scale typos (1e3x/1e6x/1e9x or 1e-3x) strictly PIT at filed_date
+            so = self._scrub_pit_xbrl_scale_outliers(so)
             so = so.sort_values(
                 ["yahoo_ticker", "filed_date", "end_date", "tag_priority"],
                 ascending=[True, True, True, False],
@@ -298,6 +306,90 @@ class PitMarketStore:
             "min_mcap_threshold_usd": float(anchor_mcap_usd) * scale,
             "min_adv_threshold_usd": float(anchor_adv_usd) * scale,
         }
+
+    def _scrub_pit_xbrl_scale_outliers(self, so: pd.DataFrame) -> pd.DataFrame:
+        """Remove SEC XBRL inline unit-scale typos strictly PIT using market data <= `filed_date`.
+
+        Catches three physical impossibilities visible on `filed_date` with zero lookahead:
+          1. Upward mega-scale typos (`1e3x`/`1e6x`/`1e9x`, e.g., EEFT, YUM, AJG, EIX, STNE):
+             `shares * raw_close(<= filed_date) > $4T * spy_scale(filed_date - 1)`.
+          2. Upward mid-cap `1e3x` typos (e.g., SHOE, CPK, WWD, TXNM):
+             `implied_mcap > $50B` with liquid US trading (`adv_20d >= $5M`) yet sustained
+             20-day daily turnover `adv_20d / implied_mcap < 2.5e-5` (`0.0025%/day`).
+          3. Downward `1e-3x` typos (e.g., ARW 2017-11-02, AAPL 2014-04-24):
+             sustained 20-day daily turnover `adv_20d / implied_mcap > 2.5` (`250%/day`).
+
+        Because bad rows are removed before `(filed_date, end_date, tag_priority)` selection, a
+        bad cover-page `dei` tag seamlessly falls back to a clean `us-gaap` tag in the same
+        filing (or the prior clean quarter's filing), preserving exact parity between single-date
+        snapshots and vectorized daily panel builds.
+        """
+        if so.empty or not self._ticker_arrays:
+            return so
+
+        # Precompute strictly PIT SPY scale per unique filed_date (uses SPY SMA60 ending t-1)
+        unique_fdts = so["filed_date"].dropna().unique()
+        spy_scale_map: dict[pd.Timestamp, float] = {
+            pd.Timestamp(dt): self.get_dynamic_thresholds(dt)["spy_threshold_scale"]
+            for dt in unique_fdts
+        }
+
+        keep_mask = np.ones(len(so), dtype=bool)
+        so_reset = so.reset_index(drop=True)
+
+        for tkr, grp in so_reset.groupby("yahoo_ticker", sort=False):
+            arr = self._ticker_arrays.get(str(tkr))
+            if arr is None or len(arr["dates_ns"]) == 0:
+                continue
+
+            dates_ns = arr["dates_ns"]
+            raw_close = arr["raw_close"]
+            adv_arr = arr["adv_20d_usd"]
+
+            f_ns = grp["filed_date"].to_numpy(dtype="datetime64[ns]")
+            pos = np.searchsorted(dates_ns, f_ns, side="right") - 1
+            valid_pos = pos >= 0
+            if not np.any(valid_pos):
+                continue
+
+            idxs = grp.index.to_numpy()[valid_pos]
+            pos_v = pos[valid_pos]
+            sh_v = grp["shares_outstanding"].to_numpy(dtype=np.float64)[valid_pos]
+            px_v = raw_close[pos_v]
+            adv_v = adv_arr[pos_v]
+            scales_v = np.fromiter(
+                (spy_scale_map[pd.Timestamp(d)] for d in grp["filed_date"].iloc[valid_pos]),
+                dtype=np.float64,
+                count=len(idxs),
+            )
+
+            px_ok = np.isfinite(px_v) & (px_v > 0.0)
+            imp_mcap = np.where(px_ok, sh_v * px_v, np.nan)
+            adv_ok = px_ok & np.isfinite(adv_v) & (adv_v > 0.0) & (imp_mcap > 0.0)
+            turn = np.where(adv_ok, adv_v / imp_mcap, np.nan)
+
+            bad_mega = px_ok & (imp_mcap > DEFAULT_XBRL_MAX_MCAP_ANCHOR_USD * scales_v)
+            bad_up_turn = (
+                adv_ok
+                & (imp_mcap > DEFAULT_XBRL_UPWARD_TYPO_MIN_MCAP_USD)
+                & (adv_v >= DEFAULT_XBRL_UPWARD_TYPO_MIN_ADV_USD)
+                & (turn < DEFAULT_XBRL_UPWARD_TYPO_MAX_TURNOVER)
+            )
+            bad_down_turn = adv_ok & (turn > DEFAULT_XBRL_DOWNWARD_TYPO_MIN_TURNOVER)
+
+            bad = bad_mega | bad_up_turn | bad_down_turn
+            if np.any(bad):
+                keep_mask[idxs[bad]] = False
+
+        n_dropped = int((~keep_mask).sum())
+        if n_dropped > 0:
+            logger.info(
+                "Scrubbed %d SEC XBRL unit-scale outlier rows (%.4f%% of %d) strictly PIT.",
+                n_dropped,
+                100.0 * n_dropped / len(so_reset),
+                len(so_reset),
+            )
+        return so_reset.loc[keep_mask].reset_index(drop=True)
 
     def get_spy_on_date(self, query_date: str | pd.Timestamp) -> dict[str, float]:
         """Return `spy_raw_close`, `spy_adj_close` (forward-only TR), and `spy_ret_total`."""

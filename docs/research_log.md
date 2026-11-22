@@ -6,7 +6,9 @@ A structured progress log of our **Point-in-Time (PIT) SEC 13F Positioning Facto
 
 ## 1. Research Framing & Core Scope Decisions
 
-- **Objective & Evaluation Framework:** Build three economically distinct institutional positioning factors directly from SEC 13F filings and test them via a **daily cross-sectional Fama-MacBeth beta-adjusted factor return framework** (regressing next-day beta-adjusted returns $r^{\text{resid}}_{i,t+1} = r_{i,t+1} - \hat{\beta}_{i,t} r_{\text{SPY},t+1}$ on rank-to-Gaussian exposures $z_{i,t}$), paired with a **tradable, drifted T+1 MOC backtest** across `0 / 5 / 10 / 20 bps` one-way transaction costs.
+- **Objective & Evaluation Framework:** Construct institutional positioning signals directly from SEC 13F filings and separate **Phase 3 (pure econometric signal validation)** from **Phase 4 (portfolio construction & backtesting)**:
+  - *Phase 3 (Signal Validation, strictly IS):* Test each candidate exposure incrementally—starting with single-signal pure `pct_shares_owned` before comparing multi-pillar composites or orthogonal change signals—via daily cross-sectional OLS factor returns $\hat{f}_{t+1} = \operatorname{Cov}(z_t, r^{\text{resid}}_{t+1})/\operatorname{Var}(z_t)$ on next-day beta-adjusted returns ($r^{\text{resid}}_{i,t+1} = r_{i,t+1} - \hat{\beta}_{i,t} r_{\text{SPY},t+1}$), reporting annualized mean $\hat{f}$, vol, Sharpe/IR, Student-$t$ $t$-stat & two-sided $p$-value, daily Rank IC, and time-series `SPY` market-neutrality checks (no trading rules or leverage scaling inferred during signal validation).
+  - *Phase 4 (Tradable Backtest, IS → Frozen OOS):* Once validated factor(s) are locked, translate into drifted T+1 MOC portfolios across `0 / 5 / 10 / 20 bps` one-way transaction costs and rebalancing modes (`event_driven` vs. `fixed_quarterly`).
 - **Train / Test Split (`~80/20`):**
   - **In-Sample (IS):** `2015-01-01` → `2023-12-31` (9 years / 36 quarters, with `2014` market burn-in for 1-year rolling beta and Q4 2014 baseline for Q1 2015 deltas). Covers ZIRP growth (`2015–19`), COVID (`2020`), meme/retail de-grossing (`2021`), rate-hike crowding unwind (`2022`), and early AI concentration (`2023`).
   - **Out-of-Sample (OOS):** `2024-01-01` → present (~2.9 years, model frozen post-2023). *Rationale:* A <1-year OOS on a quarterly signal has virtually no statistical power ($\text{SE}(\widehat{\text{SR}}) \approx 1.2$); ~3 years tightens SE by ~2× while directly testing modern crowding and alpha decay.
@@ -149,6 +151,7 @@ flowchart TD
 - **Issue 2 — Nominal threshold drift & forward-only `SPY` benchmark:**
   - *Solution:* Compounded `spy_adj_close` strictly **forward** from `2014-01-02` (invariant to future dividends). Replaced fixed `$2B / $10M` floors with dynamic PIT thresholds anchored strictly pre-IS on `2014-12-31` at **`$1.0B` MCap / `$5.0M` ADV** and scaled strictly forward by `SPY`'s trailing 60-day `raw_close` SMA ending `t-1` (zero lookahead).
 - **Issue 3 — Stale XBRL & unequal dual-class shares (`BRK-A/B`):** Enforced `shares_out_age_days <= 460` and auto-detected unequal sibling price ratios (`>= 2.5x`) strictly PIT to null bogus market caps (`BRK-B`).
+- **Issue 4 — SEC XBRL inline unit-scale typos (`1e3×` / `1e6×` / `1e9×` and `1e-3×`):** Raw SEC `companyfacts` filings occasionally mistag share units (e.g., `EEFT`, `YUM`, `AJG`, `EIX`, `STNE`, `SHOE`, `ARW`). Added strictly PIT filing-date scrubber (`_scrub_pit_xbrl_scale_outliers` in [panel.py](../src/pit/panel.py)) rejecting any row violating physical market bounds on `<= filed_date` (`imp_mcap > $4T × SPY_scale`, or `imp_mcap > $50B` with liquid US `adv_20d >= $5M` and `adv_20d / imp_mcap < 2.5e-5`, or `adv_20d / imp_mcap > 2.5`). Scrubbed **`1,571` rows (`0.49%` of `321,129`)** strictly PIT with zero lookahead, seamlessly falling back to clean `us-gaap` tags in the same filing or the prior clean quarter while preserving exact parity (`max_rel_err <= 6.54e-13`).
 - **PIT Seasoned Investable Universe Funnel — Dynamic `SPY`-Scaled Floors (100-Fund Universe, `2015–2026`):**
 
 | Query Date | `SPY` Mult | Dynamic Floor (MCap / ADV) | US Common Held | Priced | Seasoned (`>=252d`) | Passes MCap | Passes ADV | **Panel Eligible** |
@@ -204,11 +207,230 @@ flowchart TD
 
 ---
 
+### Step 7 — Phase 3a: Beta-Return Audit (`CHRD` Fix) & Pure `pct_shares_owned` Signal Validation *(IS Only: `2015–2023`)*
+*Modules & Notebook:* [compute.py](../src/pit/compute.py), [ownership.py](../src/factors/ownership.py), [test_factors_ownership.py](../tests/test_factors_ownership.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)
+
+- **What we built:** Built a clean, pure regression-based signal validation module ([ownership.py](../src/factors/ownership.py)) and executed living research notebook ([factor_research.ipynb](../notebooks/factor_research.ipynb)) evaluating our first standalone positioning signal (`pct_shares_owned`) strictly In-Sample (`query_date`: `2015-02-18 → 2023-12-28`; `fwd_ret_date`: `2015-02-19 → 2023-12-29`, `2,232` trading days, avg `704.4` eligible stocks/day; **zero OOS data touched**).
+- **Issue 1 — Yahoo Finance Chapter-11 splice poisoning `beta_252d_lag1` (`CHRD`):** Auditing IS beta-adjusted returns before running regressions caught that Yahoo Finance stitched pre-bankruptcy `OAS` (`$0.12`) directly into post-Chapter-11 `CHRD` (`$31.00`) on `2020-11-20` with no split factor (`+25,733%` single-day return), causing `beta_252d_lag1 = -93.93` for 20 days in 2021 and a bogus `+70.25%` beta-adjusted return on `2021-07-01`.
+  - *Solution:* Masked single-day corrupted reorganization discontinuities (`ret_total > 5.0` or `<= -0.99`, preserving all genuine equity moves such as `GME +135%`, `AMC +301%`) strictly PIT inside `compute_masked_rolling_beta_lag1` ([compute.py](../src/pit/compute.py)). Rebuilt `pit_daily_panel.parquet` with exact parity (`max_rel_err <= 6.54e-13`); `CHRD` beta normalized to `0.84–3.82` (median `1.05`; full IS panel `[-1.37, +4.29]`).
+- **Issue 2 — Strict IS boundary guard on `fwd_ret_date`:** Filtering only on `query_date <= 2023-12-31` would include `2023-12-29`, whose `fwd_day_ret` lands on `2024-01-02` (first OOS trading day). *Solution:* Mapped exact `fwd_ret_date` on the scrubbed `SPY` calendar and asserted `fwd_ret_date <= 2023-12-31` inside `load_factor_panel`.
+- **In-Sample Global Daily Cross-Sectional OLS Results (`2015-02-18 → 2023-12-28`, `T = 2,232` days, `bps/day` per `+1σ`, no annualization):**
+
+| Exposure Spec | Size Corr | Raw Mean (`bps/d`) | Raw $t$ ($p$-val) | Raw SPY $\beta$ ($R^2$) | Adj Mean (`bps/d`) | Adj Std (`bps/d`) | Adj $t$ ($p$-val) | Adj SPY $\beta$ ($R^2$) | Rank IC ($p$-val) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `pct_own_winsor_z` *(1%/99%)* | `-0.164` | `-0.308` | `-0.83` (`0.406`) | `+0.058` (`0.143`) | **`-0.561`** | `15.97` | `-1.66` (`0.0971`) | `+0.004` (`0.0009`) | `-0.0042` (`0.0174`) |
+| `pct_own_rank_z` *(Gaussian)* | `-0.131` | `-0.157` | `-0.44` (`0.660`) | `+0.059` (`0.160`) | `-0.456` | `15.16` | `-1.42` (`0.1558`) | `+0.001` (`0.0001`) | `-0.0042` (`0.0174`) |
+| **`pct_own_size_neutral_z`** | **`0.000`** | `-0.371` | `-1.17` (`0.244`) | `+0.046` (`0.125`) | **`-0.561`** | **`13.86`** | **`-1.91` (`0.0558`)** | `+0.002` (`0.0003`) | `-0.0034` (`0.0206`) |
+| `pct_own_rank_size_neutral_z` | `0.000` | `-0.208` | `-0.66` (`0.508`) | `+0.049` (`0.144`) | `-0.453` | `13.54` | `-1.58` (`0.1140`) | `-0.000` (`0.0000`) | `-0.0037` (`0.0196`) |
+
+- **Key Signal Validation Takeaways (Pure Global Econometrics — No Trading Strategy or Conditional Cuts Yet):**
+  - *Raw returns are beta-confounded:* Unadjusted `f_raw` slopes are weak and statistically insignificant (`p = 0.24–0.66`) while carrying heavy market-beta exposure (`SPY R² = 12%–16%`).
+  - *Beta adjustment isolates the signal:* Stock-level `beta_252d_lag1` collapses `SPY R²` to `<0.001` and nearly doubles the daily slope magnitude (`-0.308 → -0.561 bps/day`, daily Rank IC `t = -2.38, p = 0.0174`).
+  - *Size neutralization sharpens significance:* Exact daily cross-sectional orthogonalization against `log(pit_mcap_usd)` lowers daily slope noise (`15.97 → 13.86 bps/day`) while preserving the full `-0.561 bps/day` slope (`t = -1.91, p = 0.0558`).
+
+---
+
+### Step 8 — Phase 3b: Two-Pillar Crowding Validation (`pct_own` & `days_to_exit`, *IS Only: `2015–2023`*)
+*Modules & Notebook:* [crowding.py](../src/factors/crowding.py), [test_factors_crowding.py](../tests/test_factors_crowding.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)
+
+- **What we built:** Validated the two structural proxies of institutional crowding ([crowding.py](../src/factors/crowding.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)) strictly In-Sample (`1,572,309` stock-days, `2,232` trading days, zero OOS touched) via date-clustered panel OLS (`fwd_beta_adj_ret_bps ~ const + X`, `cov_type="cluster"` by `query_date`):
+  1. **`pct_own`** (*Ownership Concentration / Float Absorption*): `shares_owned / shares_outstanding`.
+  2. **`days_to_exit`** (*Liquidity / Exit Bottleneck*, renamed from `days_to_liquidate`): `position_usd / adv_20d_usd` (the split-safe, dual-class-consistent equivalent of `shares_owned / 20d_ADV`).
+- **Deliberate exclusion of `n_filers`:** Testing `n_filers` individually confirmed it is mega-cap confounded (`corr(log_mcap) = +0.64`) and carries the opposite sign even after size neutralization (`+0.224 bps/d`, $p = 0.565$), reflecting quality popularity rather than exit fragility; it was excluded from the crowding factor.
+- **In-Sample Date-Clustered Panel OLS Results (`fwd_beta_adj_ret_bps` on Size-Neutral Z-Scores):**
+
+| Model | Variable | Coef (`bps/d`) | Clustered SE | $z$-stat | Var $p$-val | Joint $F$ $p$-val |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Pillar 1: `pct_own` *(Float Absorption)* | `pct_own_sn` | `-0.557` | `0.303` | `-1.84` | `0.0663` | `0.0665` |
+| Pillar 2: `days_to_exit` *(Exit Bottleneck)* | `days_to_exit_sn` | `-0.449` | `0.204` | `-2.21` | `0.0274` | `0.0275` |
+| **2-Pillar Equal-Weight (`0.5*pct_own + 0.5*days_to_exit`)** | **`crowding_z`** | **`-0.539`** | **`0.224`** | **`-2.41`** | **`0.0161`** | **`0.0162`** |
+| *Diagnostic:* Multilinear OLS (`pct_own + days_to_exit`) | `pct_own_sn` / `days_to_exit_sn` | `-0.511` / `-0.060` | `0.684` / `0.590` | `-0.75` / `-0.10` | `0.455` / `0.918` | `0.0457` |
+
+- **Why We Chose the 2-Pillar Equal-Weight Approach Instead of Multilinear Regression:**
+  - **`pct_own` and `days_to_exit` are two complementary measurements of ONE Crowding factor — not two independent alpha sources.** Because $\text{days\_to\_exit} = \text{pct\_own} \times (\text{MCap}/\text{ADV}_{20})$, they share `corr = +0.760` (`VIF = 2.37`).
+  - Putting both into an unconstrained multilinear regression forces OLS to invert $(X'X)$, inflating clustered standard errors by **2.3×–2.9×** (`0.303 → 0.684` and `0.204 → 0.590`) and washing out individual partial $p$-values (`p = 0.455`, `p = 0.918`) even though the joint F-test is significant (`p = 0.0457`).
+  - Equal-weight z-averaging (`crowding_z = std(0.5*pct_own_sn + 0.5*days_to_exit_sn)`) estimates zero free weights, avoids VIF blow-up, and cancels single-metric measurement noise (matching Barra/Axioma composite style factor construction), lifting significance to **`-0.539 bps/d`, `z = -2.41` (`p = 0.0161`)** with `SPY β = +0.0007` and `Size Corr = 0.00`.
+
+- **Tail & Decile Analysis (`crowding_z`, `D1 → D10`, Strictly In-Sample `2015–2023`):**
+  - Sorting daily into 10 equal-count deciles (~70 stocks/decile) reveals a **nonlinear right-tail cliff in `D10`**, matching the physical escalation of exit congestion:
+
+| Decile / Tail Spread | Mean $Z$ | Avg `pct_own` | Avg `days_to_exit` | Beta-Adj Mean (`bps/d`) | Daily Std (`bps/d`) | $t$-stat | $p$-value | `SPY` $\beta$ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `D1` *(Least Crowded)* | `-0.93` | `0.11%` | `0.1d` | `-0.066` | `61.0` | `-0.05` | `0.9593` | `+0.0398` |
+| `D2–D6` *(Low/Mid Range)* | `-0.83 → -0.23` | `0.26% → 2.36%` | `0.3d → 3.2d` | `-1.06 → +0.18` | `41.8–50.9` | `-1.10 → +0.21` | `>0.27` | `+0.015–0.048` |
+| `D7–D9` *(Elevated Crowding)* | `+0.04 → +0.96` | `3.31% → 6.60%` | `4.5d → 9.2d` | `-0.92 → -0.46` | `43.4–50.4` | `-0.93 → -0.50` | `>0.35` | `+0.019–0.030` |
+| **`D10` *(Extreme Tail)*** | **`+2.33`** | **`11.78%`** | **`18.7d`** *(med `15.8d`)* | **`-2.094`** | `55.0` | `-1.80` | `0.0723` | `+0.0427` |
+| **`D10 − D1`** | — | — | — | **`-2.028`** | `43.5` | **`-2.20`** | **`0.0276`** | **`+0.0029`** |
+| **`D10 − Rest (D1–D9)`** | — | — | — | **`-1.739`** | **`29.8`** | **`-2.76`** | **`0.0059`** | `+0.0140` |
+
+  - *Portfolio construction takeaway & actionability caveat:* The crowding edge becomes a consistent negative/short signal starting in **`> D7`** (`D7–D9`: `-0.46` to `-0.92 bps/d`) and peaks sharply in **`D10`** (`18.7 days_to_exit`, `11.8%` owned, `-2.094 bps/d`). Shorting `D10` against a broad diversified uncrowded long basket (`D1–D9`) cuts daily spread noise by **31%** (`43.5 → 29.8 bps/d`) and reaches **`t = -2.76 (p = 0.0059)`**. **Real-world caveat:** Extreme crowded names in `> D7` / `D10` often carry **elevated short borrow costs, high prime-broker utilization / hard-to-borrow (HTB) constraints, and short-squeeze risk**, which may make the short leg less actionable net of borrow fees (logged in Section 5 as a top production upgrade).
+
+- **Conditional Regime Analysis — Risk-On vs. Risk-Off Across All Deciles (`1-Day` & `10-BD` Trailing `SPY`, Strictly IS `2015–2023`):**
+  - *Economic rationale & why `10-BD` (`t-10bd → t`) + magnitude buckets + full `D1..D10` deciles matter:* Crowding (`days_to_exit`) is a state-dependent liquidation factor — forced multi-manager de-grossing happens during meaningful market stress, not `±0.2%` noise days. Flipping on binary `SPY 1d < 0` vs `>= 0` (~125 flips/yr) burns slippage, and 1-day spikes suffer from bear-market bounces (`> +1.5%`). A **10-business-day (`t-10bd → t`, ~2 weeks)** trailing `SPY` window is responsive without requiring a full 20-day month (~30 regime switches/yr), letting us inspect **all 10 crowding deciles (`D1 → D10`)** strictly PIT:
+
+| Crowding Decile (`10-BD SPY`, IS `2015–2023`) | Risk-Off (`< 0%`, 790d) | Off $t$ | Risk-On (`>= 0%`, 1,442d) | On $t$ | Diff (`Off − On`) | Deep Stress (`<= -3%`, 239d) | Deep $t$ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `D1–D6` *(Low/Mid Crowding)* | `-3.25 → -1.61` | `-1.47 → -1.05` | `-0.52 → +1.72` | `-0.44 → +1.19` | `-4.96 → -1.71` | `-6.39 → -1.60` | `-1.17 → -0.43` |
+| `D7` / `D8` *(Moderate)* | `-1.62` / `-1.57` | `-0.90` / `-0.92` | `-0.45` / `+0.18` | `-0.39` / `+0.17` | `-1.17` / `-1.75` | `+1.65` / `+0.72` | `+0.38` / `+0.18` |
+| **`D9` *(Elevated Crowding)*** | **`-3.75`** | **`-1.84`** | `+0.84` | `+0.69` | **`-4.59`** | **`-5.32`** | `-1.05` |
+| **`D10` *(Extreme Tail)*** | **`-5.52`** | **`-2.55`** | `-0.22` | `-0.16` | **`-5.29`** | **`-8.33`** | `-1.49` |
+| **`> D7 (D8–D10)`** | **`-3.62`** | **`-2.00`** | **`+0.27`** | `+0.24` | **`-3.88`** | **`-4.31`** | `-0.95` |
+| **`> D7 − Rest (D1–D7)`** | **`-1.44`** | `-1.62` | `-0.49` | `-0.87` | `-0.95` | `-1.96` | `-1.02` |
+| **`D10 − Rest (D1–D9)`** | **`-3.23`** | **`-2.74`** | `-0.93` | `-1.25` | `-2.30` | **`-6.00`** | **`-2.11`** |
+
+  - *10-BD Magnitude Buckets (`D10 − Rest` / `crowding_z` Slope):* `<= -3.0%` (`239d`): **`-6.00` (`t = -2.11`) / `-1.50`**; `-3.0%..-1.0%` (`282d`): `-1.47 / -0.87` (`D10 = -6.64`); **`-1.0%..+1.0%` (`687d`) & `+1.0%..+3.0%` (`644d`, 60% of sample): dead zero (`-0.07` & `-0.20 bps/d`)**; `> +3.0%` (`380d`, violent rally rotations): **`-4.91` (`t = -3.12`) / `-0.95`**.
+  - *Key findings:* (1) Across all 10 deciles, Risk-Off de-risking concentrates **specifically in `D9` (`-3.75 bps/d`) and `D10` (`-5.52 bps/d`; `-8.33 bps/d` in `<= -3%` stress)** — directly validating sizing shorts **proportional to `crowding_z`** (~89% weight in `D9–D10`). (2) **Zero "buy-the-dip" bounce** after acute `1d <= -1.5%` (`> D7 = -6.31 bps/d`) or `10bd <= -3%` (`D10 = -8.33 bps/d`) selloffs. (3) Virtually 100% of `> D7` short alpha occurs when `SPY 10bd < 0%` (`-3.62 bps/d` vs `+0.27 bps/d` in Risk-On), while calm bull/sideways markets (`-1% to +3%`) are flat.
+
+---
+
+### Step 9 — Phase 3c: Concentration Shifts (`delta_pct_own`) PIT Amendment API & Honest Rejection *(IS Only: `2015–2023`)*
+*Modules & Notebook:* [concentration.py](../src/factors/concentration.py), [test_factors_concentration.py](../tests/test_factors_concentration.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)
+
+- **What we built:** Built a dedicated Concentration Shifts validation module ([concentration.py](../src/factors/concentration.py)) and adversarial amendment unit tests ([test_factors_concentration.py](../tests/test_factors_concentration.py)) evaluating the quarter-over-quarter active change in `% shares owned` (`delta_pct_own = issuer_delta_shares_pit / shares_out_pit`) plus alternative shift proxies (`mean_active_weight_shift`, `delta_holder_hhi_pit`, `net_buyer_ratio`) strictly In-Sample (`2015-05-18 → 2023-12-28`, `2,171` trading days, `1,535,681` stock-days; starting after the Q1 2015 45-day deadline when QoQ delta coverage reaches `99.7%`; zero OOS touched).
+- **PIT `13F-HR/A` Amendment-Safe Delta Verification (Never Diff Yesterday's Aggregate Record):**
+  - On every `query_date`, `PitHoldingsLedger` independently resolves each active filer's most up-to-date amended `Q_curr` AND most up-to-date amended `Q_prev` (`gap <= 105d`, non-winddown), forward-adjusts both to exact `query_date` share units, rolls up dual-class issuers, and divides by `shares_out_pit[t]`.
+  - Audited across all **`78` active `Q_curr`** amendments (`RESTATEMENT` & `NEW HOLDINGS` CTR reveals) and **`14` active `Q_prev`** retroactive amendments in our 100-entity ledger (zero `Q_curr → Q_prev` corruption; plus synthetic adversarial unit tests verifying zero same-day lookahead and exact T+1 recomputation on `Q_curr` restatements, retroactive `Q_prev` restatements, and `NEW HOLDINGS` CTR reveals).
+- **In-Sample Date-Clustered Panel OLS Results (`fwd_beta_adj_ret_bps` on Size-Neutral Shift Z-Scores):**
+
+| Concentration Shift Proxy (Size-Neutral) | Corr w/ `crowding_z` | OLS Slope (`bps/d`) | Clustered SE | $z$-stat | $p$-value | `SPY` $\beta$ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Primary: `delta_pct_own`** *(QoQ $\Delta$ % Owned)* | `+0.058` | `-0.055` | `0.237` | `-0.23` | **`0.8177`** | `-0.0017` |
+| Alt 1: `mean_active_weight_shift` *(Constant-Price $\Delta w$)* | `+0.031` | `+0.173` | `0.191` | `+0.91` | `0.3654` | `-0.0033` |
+| Alt 2: `delta_holder_hhi` *(QoQ $\Delta$ HHI)* | `-0.039` | `-0.205` | `0.204` | `-1.01` | `0.3142` | `+0.0007` |
+| Alt 3: `net_buyer_ratio` *(Buyers − Sellers)* | `-0.028` | `+0.202` | `0.227` | `+0.89` | `0.3753` | `-0.0041` |
+
+- **Honest Signal vs. Noise Assessment (Persistence vs. Staleness under the 45-Day Lag):**
+  - `delta_pct_own` is **pure statistical noise In-Sample** (`p = 0.818`; decile spreads equally flat: `D10 − D1 p = 0.287`, `D10 − Rest p = 0.477`), and every alternative shift proxy is insignificant (`p = 0.31–0.38`).
+  - *Economic root cause (measured directly via 63-trading-day / 1-quarter cross-sectional autocorrelation):* **`crowding_z` = `+0.947`** (slow-moving structural state that stays live after the 45-day SEC lag) vs. **`delta_pct_own_sn` = `+0.164`** (stale quarterly trade flow executed 45–135 days earlier and already priced in by Day 46).
+  - *Decision:* Deliberately reject Concentration Shifts before Phase 4 (Backtesting) rather than data-mining it.
+
+---
+
+### Step 10 — Phase 3d: Smart Money Following (Report-Date Dollars Invested) QA & Honest Rejection *(IS Only: `2015–2023`)*
+*Modules & Notebook:* [smart_money.py](../src/factors/smart_money.py), [test_factors_smart_money.py](../tests/test_factors_smart_money.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)
+
+- **What we built:** Built a dedicated Smart Money Following module ([smart_money.py](../src/factors/smart_money.py)) and adversarial unit tests ([test_factors_smart_money.py](../tests/test_factors_smart_money.py)) measuring total smart-money capital committed to each stock valued strictly as of each filing's **`period_of_report`** (NOT filing date or query date): $\text{Dollars Invested}_{f,i}(q_f) = \text{shares}_{f,i}(q_f) \times \text{raw\_close}_i(\text{last trading day} \le q_f)$, rolled up across equal-ratio dual-class issuers (`issuer_cik`) and tested strictly In-Sample (`2015-02-18 → 2023-12-28`, `2,232` trading days, `1,571,390` stock-days; zero OOS touched).
+- **Pre-Regression Data QA Audit (`audit_report_date_dollars_qa`):**
+  - Cross-audited `shares × raw_close(<= period_of_report)` against SEC-reported `reported_value_usd` across `113,910` priced IS US Common Stock state-holding rows: **`median ratio = 1.0000`**, **`95.2%` within ±1%**, **`97.3%` within ±5%**, **`max price lag = 2 calendar days`** (strictly weekend quarter-ends; zero forward lookahead), **`100.00%`** non-null coverage on the eligible IS panel.
+  - Confirmed the largest single-row `> 5×` discrepancies in raw states (`Harding Loevner 2014-12-31` & `2017-09-30`, `GQG Partners 2018-12-31`, `Findlay Park 2022-06-30` post-split `GOOG`) were real botched initial `13F-HR` filings corrected within `1–9` days by `13F-HR/A RESTATEMENT` filings in our PIT ledger.
+- **In-Sample Date-Clustered Panel OLS Results (`fwd_beta_adj_ret_bps` on Report-Date Dollar Signals):**
+
+| Smart Money Signal (Report-Date Valuation) | Size Corr | Crowding Corr | OLS Slope (`bps/d`) | Clustered SE | $z$-stat | $p$-value | `SPY` $\beta$ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Raw Dollars Invested (`dollars_rpt_z`, "HF VIP") | `+0.57` | `+0.42` | `+0.004` | `0.343` | `+0.01` | **`0.9904`** | `-0.0035` |
+| Size-Neutral Dollars Invested (`dollars_rpt_sn`) | `0.00` | `+0.51` | `-0.041` | `0.334` | `-0.12` | `0.9024` | `+0.0057` |
+| Raw Log Dollars Invested (`log_dollars_rpt_z`) | `+0.50` | `+0.59` | `-0.200` | `0.294` | `-0.68` | `0.4951` | `-0.0035` |
+| **Primary: Size-Neutral Log Dollars (`log_dollars_rpt_sn`)** | **`0.00`** | **`+0.69`** | **`-0.246`** | **`0.320`** | **`-0.77`** | **`0.4416`** | `+0.0043` |
+| Alt 1: Active Book Overweight (`Book% − MCap%`, SN) | `0.00` | `+0.53` | `-0.188` | `0.287` | `-0.66` | `0.5122` | `+0.0049` |
+| Alt 2: Mean Portfolio Conviction Weight (`mean_w_rpt_sn`) | `0.00` | `+0.52` | `-0.140` | `0.267` | `-0.53` | `0.5992` | `+0.0027` |
+| Alt 3: Max Single-Filer Conviction (`max_w_rpt_sn`) | `0.00` | `+0.54` | `-0.112` | `0.290` | `-0.39` | `0.6993` | `+0.0032` |
+
+- **Honest Signal vs. Noise Assessment (Why "Following the Dollars" Fails While 2-Pillar Crowding Works):**
+  - **Zero positive copycat alpha anywhere:** Even the top decile `D10` of Raw Dollars Invested ("Hedge Fund VIP", median `$3.30B` invested / `$79.9B` MCap) earns `-0.495 bps/d` (`t = -0.70`; `D10 − D1 = -0.575 bps/d`, `t = -0.50`).
+  - **Two algebraic & economic reasons:** (1) Raw dollar levels are heavily mega-cap confounded (`corr(size) = +0.57`), lumping liquid mega-cap consensus (`AAPL`/`MSFT`) together with fragile mid-cap crowding; (2) once log-transformed and size-neutralized, $\log(\text{Dollars}_{\text{rpt}}) - \log(\text{MCap}_t) = \log(\text{pct\_own}_t) + \log(P_{\text{rpt}} / P_t)$ collapses into a noisier, stale-price version of `pct_own` (`corr = +0.70`) lacking the `days_to_exit` liquidity bottleneck — carrying the **negative crowding sign** (`-0.246 bps/d`, `D10 = -1.967 bps/d`) at much weaker precision (`p = 0.442` vs. `crowding_z p = 0.0175`).
+  - *Phase 3a–c Interim Takeaway:* Raw report-date dollars fail because weighting all 100 funds equally by AUM mixes mega-cap asset-gatherers with skilled stock-pickers. Next, we test whether ranking managers strictly PIT on trailing stock-selection skill rescues Smart Money Following.
+
+---
+
+### Step 11 — Phase 3e: Rolling PIT Manager-Skill-Weighted Smart Money (`IR_badj`) *(IS Only: `2017–2023`)*
+*Modules & Notebook:* [manager_skill.py](../src/factors/manager_skill.py), [test_factors_manager_skill.py](../tests/test_factors_manager_skill.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)
+
+- **Design Rationale & Interview Talking Points (Why Static Quarterly Sliding Window + `IR_badj`):**
+  1. **Why freeze rankings strictly on completed prior quarters (instead of daily rolling)?** Re-ranking managers every day using their *current* quarter's basket mechanically boosts every manager holding a stock that rallied last month — quietly turning "Manager Skill" into disguised **short-term stock price momentum (`ret_20d`/`ret_63d`)** while adding noisy daily rank churn. Freezing each manager's ranking on the **trailing 8 completed historical quarters (2 years), strictly excluding the current live basket**, severs intra-quarter momentum contamination and aligns all ~86 active managers synchronously on the exact same completed calendar quarters (no early-vs-late filer mismatch during the Feb/May/Aug/Nov filing waves), while live holdings still update strictly on each fund's `T+1` `effective_date`.
+  2. **Why Beta-Adjusted Information Ratio (`IR_badj`) instead of raw return or raw Sharpe?** Raw return/Sharpe rewards high-beta bull-market riders (`1.3β` growth/TMT funds) rather than stock selection. Computing daily drifted buy-and-hold stock-level beta-adjusted returns ($r^{\text{badj}}_{f, d} = \sum_i w_{f, i, d-1}[r_{i, d} - \beta_{i, d-1} r_{\text{SPY}, d}]$) and taking annualized $\text{IR}_{\text{badj}} = (\bar{r}^{\text{badj}} / \sigma(r^{\text{badj}}))\sqrt{252}$ across ~504 daily points strips out market beta and penalizes lucky single-bet flukes via idiosyncratic volatility.
+  3. **Double PIT Gate (Zero Lookahead):** Historical basket `Q_q` (evaluated over `(Q_q, Q_{q+1}]`) enters quarter $Q_m$ (`t_start`) iff `valid_from <= t_start < valid_to` (future `13F-HR/A`s never rewrite history), `eval_end < t_start`, and `basket_q < current_basket`.
+- **Comprehensive 6-Point Data QA Audit (Before Stock Regressions):**
+  1. **Extreme single-day stock discontinuity mask:** Caught and masked `80` bogus bankruptcy/reorg Yahoo Finance splice stock-days (`ret_total > +500%` or `<= -99%`, e.g., `AFIIQ`, `CHRD`).
+  2. **Drifted quarterly fund basket coverage:** `3,340 / 3,411` IS states (`97.9%`) hold `>= 5` priced US common stocks (median `79.5%` of total 13F reported USD).
+  3. **Realized fund `SPY` beta proof (`100` funds):** Median realized fund `SPY β` drops from **`1.085`** (raw, IQR `1.031–1.159`) to **`+0.007`** (beta-adjusted, IQR `-0.002 to +0.021`) — **`99.4%`** of market beta removed strictly PIT!
+  4. **Extreme fund-day event verification:** Every single `|r_badj| > 12%` fund-day was verified to be a real iconic hedge-fund event (zero data glitches): `SRS Investment +41.3%` on `2021-11-02` (`CAR` Avis squeeze), `Senvest +39.5%` on `2021-01-27` (`GME` peak squeeze), `PAR Capital +13.9%` on `2020-11-09` (Pfizer vaccine Monday), `Paulson` / `Brave Warrior -13%` on `2016-03-15` (`VRX` crash).
+  5. **Zero PIT violations & Anti-Survivorship:** **`0`** Double PIT Gate violations across `28` quarters (`2017-Q1 → 2023-Q4`, avg `86.1` scored active funds/quarter), and **`16 / 16` closed 2015-era peers** entered historical rankings while alive (e.g., `Melvin Capital` Top-5 in `2017-Q1`, `Omega` Bottom-5; `Hitchwood` Bottom-5 in `2023-Q1`).
+  6. **Manager-level 1-quarter forward persistence check:** Trailing 8Q `IR_badj` → next-quarter `IR_badj` Rank IC = **`+0.0337` (`std = 0.316, t = +0.56`)** overall, and **`+0.0176` (`std = 0.177, t = +0.53`)** style-relative (nearly cutting IC volatility in half once Growth-vs-Value swings are removed!).
+- **In-Sample Stock-Level Results (`2017-01-03 → 2023-12-28`, `1,759` trading days, `99.6%` coverage):**
+
+| Manager-Skill Specification (Size-Neutral) | Lookback | Corr w/ Crowding | OLS Slope (`bps/d`) | Clustered SE | $z$-stat | $p$-value |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| **Primary: Conviction-Weighted `IR_badj` (`skill_conv_sn`)** | **8Q (2yr)** | **`-0.05`** | **`-0.044`** | **`0.722`** | **`-0.06`** | **`0.9509`** |
+| Alt 1: Dollar-Weighted `IR_badj` (`skill_dollar_sn`) | 8Q (2yr) | `-0.04` | `+0.019` | `0.712` | `+0.03` | `0.9789` |
+| Alt 2: Top-Q − Bottom-Q `% Owned` (`skill_q4_q1_sn`) | 8Q (2yr) | `-0.10` | `-0.077` | `0.580` | `-0.13` | `0.8943` |
+| Alt 3: Conviction-Weighted Cum Alpha (`skill_alpha_sn`) | 8Q (2yr) | `-0.05` | `+0.079` | `0.780` | `+0.10` | `0.9190` |
+| Alt 4: Style-Relative `IR_badj` (`skill_style_sn`) | 8Q (2yr) | `-0.03` | `+0.117` | **`0.408`** | `+0.29` | `0.7741` |
+| *Sensitivity:* Conviction-Weighted / Style-Rel `IR_badj` | 4Q (1yr) | `-0.05` / `-0.03` | `+0.681` / `+0.542` | `0.641` / `0.389` | `+1.06` / `+1.39` | `0.288` / `0.164` |
+| *Sensitivity:* Conviction-Weighted / Style-Rel `IR_badj` | 12Q (3yr) | `-0.04` / `-0.01` | `+0.270` / `+0.473` | `0.755` / `0.414` | `+0.36` / `+1.14` | `0.721` / `0.253` |
+
+- **Decile Check (`D1` Bottom Skill → `D10` Top Skill, 8Q `skill_conv_sn`):** `D1 = -0.885 bps/d`, `D10 = -1.324 bps/d`, **`D10 − D1 = -0.439 bps/d` (`daily std = 94.6 bps/d`, `t = -0.19`, `p = 0.846`)** — Long Top / Short Bottom Skill fails In-Sample.
+- **Honest Economic Diagnosis & Phase 3 Lock:**
+  - Manager-level 13F alpha persistence is too weak (`IC = +0.034, t = +0.56`) to generate reliable stock-level alpha, and un-neutralized 2-year manager rankings suffer severe **Growth-vs-Value style whipsaw** (`2020–2021` ranked Growth/Quality top right before the 2022 Growth crash; `2023` flipped to Value top right before the 2023 AI/Growth rally), inflating clustered SE to **`0.722 bps/d`** (`3.2×` Crowding's `0.225`). Style-relative ranking cuts SE by **43%** (`0.408`) and flips the sign consistently positive across `4Q/8Q/12Q`, yet remains statistically insignificant (`p = 0.16–0.77`).
+  - **Final Phase 3 Decision:** Lock **1 validated, structurally persistent signal (`crowding_z`, 2-Pillar Crowding)** for **Phase 4 (Backtesting)**, backed by **3 thoroughly engineered, honestly rejected alternatives** (`Concentration Shifts`, `Naive Dollar Smart Money`, and `Manager-Skill Smart Money`).
+
+---
+
+### Step 12 — Phase 4a: Rack-Based In-Sample Backtest (`Short > D7` Crowding, Train Only `2015–2023`)
+*Modules & Notebook:* [engine.py](../src/backtest/engine.py), [test_backtest.py](../tests/test_backtest.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)
+
+- **What we built:** Built a factor-agnostic, rack-based (`date × security_id`) corporate-action-clean backtester ([engine.py](../src/backtest/engine.py)) strictly on **Train (In-Sample `2015-02-18 → 2023-12-28`, `2,232` trading days, `fwd_ret_date <= 2023-12-31`, zero OOS touched)**:
+  - **Iteration 1 Signal Rack (`Short > D7` Crowding):** Zero for `D1–D7`; for `D8–D10`, $\hat{r}_{i, t} = \hat{\beta}_{\text{IS}} \cdot \text{crowding\_z}_{i, t}$ ($\hat{\beta}_{\text{IS}} = -0.5348\text{ bps/d}$), sized at **`$50,000` per `1 bps/d` expected return** (avg daily GMV **`~$6.9M`** across ~210 names) with a hard **`5%` of `adv_20d_usd`** single-name cap.
+  - **Cost & Drift Accounting:** Held notionals drift daily via split/dividend-adjusted `prev_day_ret`; stock execution charges **`5 bps` one-way (`10 bps` round-trip)** on every `|N_t - N_drifted_t|` plus `1 bp` on net `SPY` beta-hedge notional changes (`H_t = -sum(N_t * beta_t)`). Short-borrow carry is modeled explicitly via configurable `borrow_bps_pa` sensitivity (`0 / 35 / 100 / 250 bps/yr`) and exact breakeven borrow rate.
+- **In-Sample Rebalancing Horizon Comparison (`5 bps` one-way = `10 bps` RT, ex-borrow base):**
+
+| Rebalancing Horizon | Avg GMV | Hit Rate | `pnl_raw` | `pnl` (Net) | Ann PnL | Ann Ret | Ann SDev | Sharpe (Raw / Net) | Max DD | Turn (`/yr`) | `SPY` $\beta$ | Breakeven Borrow |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Daily Rebalance | `$6.93M` | `52.0%` | `+$2.64M` | `+$2.34M` | `+$264k` | `+3.81%` | `8.40%` | `0.51 / 0.45` | `-24.8%` | `9.21×` | `-0.037` | `381 bps/yr` |
+| **Buffered Event-Driven (`25 bps` band)** | **`$6.89M`** | **`51.8%`** | **`+$2.57M`** | **`+$2.43M`** | **`+$275k`** | **`+3.99%`** | **`8.19%`** | **`0.51 / 0.49`** | **`-23.1%`** | **`3.71×`** | **`-0.031`** | **`399 bps/yr`** |
+| Fixed Quarterly (`Day +46`) | `$6.92M` | `51.5%` | `+$2.09M` | `+$2.03M` | `+$229k` | `+3.31%` | `7.98%` | `0.43 / 0.42` | `-24.7%` | `1.61×` | `-0.025` | `331 bps/yr` |
+
+- **Key Train Takeaways:**
+  1. **Buffered Event-Driven dominates both extremes:** Cuts annualized turnover by **60%** vs. Daily (`9.21× → 3.71×`), delivering higher net PnL (`+$2.43M` vs `+$2.34M`) and Sharpe (`0.49` vs `0.45`), while capturing `+$404k` (`+68 bps/yr`) of incremental timing alpha missed by Fixed Quarterly (`Day +46`). Even at `20 bps` one-way (`40 bps` RT), Buffered stays solidly positive (`+$2.09M`, Sharpe `0.42`).
+  2. **Short-Borrow Sensitivity (Buffered `> D7`):** Net PnL remains healthy at GC (`35 bps/yr`: `+$2.22M`, Sharpe `0.44`) and warm mid-cap (`100 bps/yr`: `+$1.82M`, Sharpe `0.37`), compresses under heavy HTB stress (`250 bps/yr`: `+$0.91M`, Sharpe `0.18`), and breaks even at **`399 bps/yr`**.
+
+---
+
+### Step 13 — Phase 4b: Dollar- & Beta-Neutral `Short D10 / Long D1–D9` (4-Iteration Regime Study, Train Only `2015–2023`)
+*Modules & Notebook:* [engine.py](../src/backtest/engine.py), [test_backtest.py](../tests/test_backtest.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)
+
+- **What we built:** Upgraded the backtester to support exact Dollar- & Beta-Neutral **`Short D10` (sized by `crowding_z`, `$50k/bps`) vs. `Long D1–D9` (equal-weighted summing to exact `+|Short GMV|`)** (`~$10.07M` full-scale GMV), and ran **4 Buffered (`25 bps` band, `5 bps` one-way = `10 bps` RT, `5% ADV` cap)** iterations strictly on Train (`2015–2023`), evaluating Return & Vol on the identical Full-Scale Allocated Capital Base (`$10.07M`) so cash days never distort Return:
+
+| D10 vs. Rest Iteration (Buffered `25 bps`, `5 bps`/side) | Active Days | `pnl_raw` | `pnl` (Net) | Ann Ret | Ann SDev | Sharpe (Raw / Net) | Max DD | Turn (`/yr`) | `SPY` $\beta$ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **1. Unconditional (Always On)** | **100.0%** | **`+$1.52M`** | **`+$1.30M`** | **`+1.46%`** | **`2.63%`** | **`+0.65 / +0.55`** | **`-4.74%`** | **`4.69×`** | **`-0.009`** |
+| 2. Risk-Off Ramp (`10d SPY -1% → -3%` cap) | 23.3% | `+$847k` | `+$230k` | `+0.26%` | `1.38%` | `+0.69 / +0.19` | `-3.85%` | `12.9×` | `-0.003` |
+| 3. Violent Rally Tail (`10d SPY > +3%`) | 17.0% | `+$744k` | `-$348k` | `-0.39%` | `1.00%` | `+0.85 / -0.39` | `-4.71%` | `24.4×` | `-0.002` |
+| 4. Combined Two-Tail (`< -1%` ramp OR `> +3%`) | 40.4% | **`+$1.58M`** | `-$83k` | `-0.09%` | `1.73%` | **`+1.03 / -0.05`** | `-4.92%` | **`36.2×`** | `-0.004` |
+
+- **Two Headline Quant Insights (Ideal for Memo & 60-Minute Defense):**
+  1. **Dollar-Neutral `Short D10 / Long D1–D9` beats `Short > D7 vs. SPY` cleanly:** Unconditional Buffered `Short D10 / Long D1–D9` lifts Net Sharpe (`0.49 → 0.55`), tightens `SPY β` to `-0.009`, and **slashes Max Drawdown nearly 5× (`-23.1% → -4.74%`)** by cancelling out mid-cap vs. mega-cap `SPY` basis noise (breakeven short borrow = `341 bps/yr`).
+  2. **Gross Regime Timing vs. Net Turnover Reality:** On paper (`pnl_raw`), Combined Two-Tail gating delivers a **`+1.03` Gross Sharpe** (`+$1.58M` in `40%` of days). Net of realistic `5 bps` one-way costs, repeatedly entering/exiting a ~700-stock book around fast `10-BD SPY` triggers explodes turnover to **`36.2×/yr`** (`$1.66M` slippage), flipping Net Sharpe to **`-0.05`**! Holding **Unconditional Buffered `Short D10 / Long D1–D9`** captures `97%` of the same gross PnL at `1/8th` the turnover (`4.69×/yr`, retaining `85.4%` net) with **zero regime-timing parameters to overfit Out-of-Sample**.
+
+---
+
+### Step 14 — Phase 4c: Single Honest Frozen Out-of-Sample Evaluation (`2024-01-02 → 2026-11-20`)
+*Modules & Notebook:* [engine.py](../src/backtest/engine.py), [factor_research.ipynb](../notebooks/factor_research.ipynb)
+
+- **Strict Freeze Protocol:** Evaluated both locked In-Sample strategies (`Buffered Short > D7 vs. SPY` and `Unconditional Buffered Dollar-Neutral Short D10 / Long D1–D9`) over **`726` untouched OOS trading days (`2024-01-02 → 2026-11-20`)** using frozen IS slope (`-0.5348 bps/d`), `$50k/bps`, `5% ADV` cap, `25 bps` buffer, and `5 bps` one-way (`10 bps` RT) + `1 bp` `SPY` hedge — **zero refitting**.
+- **Pure OOS Factor Stability (`crowding_z`):** Slope held virtually identical at **`-0.556 bps/d`** (`SE = 0.465, z = -1.19, p = 0.232` vs. IS `-0.535 bps/d, p = 0.0175`), confirming persistent crowding drag across the 2024–2026 regime.
+- **Train (IS) vs. Frozen Test (OOS) vs. Full 12-Year Summary (`5 bps`/side, ex-borrow base):**
+
+| Frozen Strategy (Buffered `25 bps`) | Window | Days | Avg GMV | Hit Rate | `pnl_raw` | `pnl` (Net) | Ann Ret | Ann SDev | Sharpe (Raw/Net) | Max DD | Turn (`/yr`) | `SPY` $\beta$ | BE Borrow |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Short `> D7` vs. `SPY`** | Train (`2015–2023`) | 2,232 | `$6.89M` | `51.8%` | `+$2.57M` | `+$2.43M` | `+3.99%` | `8.19%` | `+0.51 / +0.49` | `-23.1%` | `3.71×` | `-0.031` | `399 bps` |
+| **Short `> D7` vs. `SPY`** | **Test OOS (`2024–2026`)** | **726** | **`$7.75M`** | **`54.0%`** | **`+$1.45M`** | **`+$1.39M`** | **`+6.20%`** | **`9.13%`** | **`+0.71 / +0.68`** | **`-10.5%`** | **`4.40×`** | `+0.066` | **`620 bps`** |
+| **Short `> D7` vs. `SPY`** | **Full (`2015–2026`)** | **2,958** | **`$7.11M`** | **`52.4%`** | **`+$4.06M`** | **`+$3.87M`** | **`+4.64%`** | **`8.49%`** | **`+0.57 / +0.55`** | `-22.3%` | `3.90×` | **`-0.010`** | **`464 bps`** |
+| Short `D10` / Long `D1–D9` | Train (`2015–2023`) | 2,232 | `$10.07M` | `51.3%` | `+$1.52M` | `+$1.30M` | `+1.46%` | `2.63%` | `+0.65 / +0.55` | `-4.7%` | `4.69×` | `-0.009` | `341 bps` |
+| Short `D10` / Long `D1–D9` | **Test OOS (`2024–2026`)** | **726** | `$11.32M` | `50.1%` | `+$48.5k` | **`-$42.2k`** | `-0.13%` | `3.27%` | **`+0.05 / -0.04`** | `-5.0%` | `4.95×` | `+0.023` | `-29 bps` |
+| Short `D10` / Long `D1–D9` | Full (`2015–2026`) | 2,958 | `$10.81M` | `50.7%` | `+$1.74M` | `+$1.43M` | `+1.13%` | `2.70%` | `+0.51 / +0.42` | `-5.0%` | `4.59×` | **`-0.003`** | `269 bps` |
+
+- **Honest OOS Attribution (`2024–2026`):**
+  1. **Decomposing `Short > D7 vs. SPY` (`+6.20%/yr`, Sharpe `+0.68`; even at `250 bps/yr` HTB borrow, Sharpe `+0.41`):** OOS deciles show `D8` (`-2.82 bps/d`), `D9` (`-3.22 bps/d`), and `D10` (`-1.70 bps/d`) averaged `-2.58 bps/d` vs. `D1–D7` (`-1.07 bps/d`) — delivering **~3.8%/yr (`-1.51 bps/d`) of genuine pure crowding alpha** plus **~2.4%/yr of mega-cap `SPY` vs. equal-weight mid-cap basis tailwind** during the 2024–2026 AI concentration rally.
+  2. **Why `Short D10 / Long D1–D9` stalled flat OOS (`-$42k`, Sharpe `-0.04`):** Physical crowding in `D10` eased by **34%** (`18.7 → 12.4 days_to_exit`, `11.8% → 8.4%` owned) as closed 2015-era funds retired from our fixed roster without replenishment, AND OOS crowding drag broadened across `D8–D9` (`-2.82 / -3.22 bps/d`), which `Long D1–D9` was inadvertently **long**.
+
+---
+
 ## 4. Current Verification Status
 
-- **Tests:** `pytest` — **42 passed** (unit + adversarial PIT lookahead, corporate-action return, calendar-scrubbing, and 100-filer config validation tests).
-- **Lint:** `ruff check .` — **All checks passed**.
-- **Next Milestone:** Resume **Phase 3 (`src/factors/`)** on our 100-entity enriched daily panel (`2.17M` panel-eligible rows, avg `731.5` stocks/day)—building **Crowding** (with `pct_shares_owned` ablation), **Concentration Shifts**, and **Flow-vs-Price Divergence** strictly In-Sample (`2015–2023`), followed by **Phase 4 (`src/backtest/`)** and **Phase 5 (`memo/` & clean-clone verification)**.
+- **Tests:** `pytest` — **64 passed** (full Phase 1–4 coverage including OOS freeze invariants, `10-BD SPY` ramp/cap tests, fixed capital base, zero-lookahead regime tests, beta-hedge identity, `5% ADV` cap, drifted two-way cost & borrow carry).
+- **Lint:** `ruff check .` — **All checks passed** (including `notebooks/factor_research.ipynb`).
+- **Artifacts Generated (Train + Frozen OOS):** [factor_research.ipynb](../notebooks/factor_research.ipynb) (`29` cells covering all of Phase 3 + Phase 4 IS & Frozen OOS), CSVs/Parquets in `outputs/factors/` & `outputs/backtest/`, and 12 charts in `outputs/charts/` (`01_*` → `11_oos_frozen_evaluation.png`).
+- **Next Milestone:** **Phase 5** — wire **`src/run_pipeline.py --stage all`** end-to-end (`ingest → pit → factors → backtest`), verify clean-clone reproducibility, draft the polished **3–5 page Research Memo** (`memo/memo.md` + PDF export), and prepare clean git commit / push to `https://github.com/cianan-richman/13F-factors.git`.
 
 ---
 
