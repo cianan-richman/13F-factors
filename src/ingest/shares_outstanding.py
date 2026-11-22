@@ -253,6 +253,7 @@ def ingest_shares_outstanding(
     tickers_cache_path: Path = DEFAULT_TICKERS_CACHE,
     output_parquet: Path = DEFAULT_SHARES_PARQUET,
     coverage_csv: Path = DEFAULT_SHARES_COVERAGE_CSV,
+    end_date: str | None = None,
     parse_only: bool = False,
     force_refresh: bool = False,
     max_workers: int = 5,
@@ -362,8 +363,11 @@ def ingest_shares_outstanding(
 
     shares_df = pd.DataFrame(expanded_rows)
     if not shares_df.empty:
-        shares_df["filed_date"] = pd.to_datetime(shares_df["filed_date"])
-        shares_df["end_date"] = pd.to_datetime(shares_df["end_date"])
+        shares_df["filed_date"] = pd.to_datetime(shares_df["filed_date"]).dt.normalize()
+        shares_df["end_date"] = pd.to_datetime(shares_df["end_date"]).dt.normalize()
+        if end_date:
+            end_ts = pd.Timestamp(end_date).normalize()
+            shares_df = shares_df[shares_df["filed_date"] <= end_ts].copy()
         shares_df = (
             shares_df.sort_values(["yahoo_ticker", "filed_date", "end_date"])
             .reset_index(drop=True)
@@ -460,10 +464,12 @@ def main(argv: list[str] | None = None) -> int:
     cusip_map = pd.read_parquet(args.cusip_map)
     workers = args.workers if args.workers is not None else int(edgar_cfg.get("max_workers", 5))
 
+    end_date_cfg = cfg.settings.get("window", {}).get("end_date")
     if args.parse_only:
         shares_df, cov_summary = ingest_shares_outstanding(
             cusip_map,
             client=None,
+            end_date=end_date_cfg,
             parse_only=True,
             limit=args.limit,
         )
@@ -478,6 +484,7 @@ def main(argv: list[str] | None = None) -> int:
             shares_df, cov_summary = ingest_shares_outstanding(
                 cusip_map,
                 client=client,
+                end_date=end_date_cfg,
                 force_refresh=args.force_refresh,
                 max_workers=workers,
                 limit=args.limit,

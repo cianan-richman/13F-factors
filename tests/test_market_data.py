@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 
 from src.ingest.market_data import (
+    _inclusive_to_yf_end_date,
     build_survivorship_report,
     compute_pit_price_series,
     compute_rolling_beta_panel,
+    download_yfinance_batch,
+    ingest_market_data,
 )
 
 
@@ -103,3 +109,64 @@ def test_build_survivorship_report_categorizes_dead_and_priced_dollars() -> None
     assert np.isclose(by_status["priced_in_yfinance"], 80.0)
     assert np.isclose(by_status["missing_or_delisted_in_yfinance"], 15.0)
     assert np.isclose(by_status["dead_bloomberg_id"], 5.0)
+
+
+def test_yfinance_end_date_is_inclusive_on_download_and_cache(tmp_path: Path) -> None:
+    """Pinned end_date='2026-11-20' passes exclusive end='2026-11-21' to yfinance and clips."""
+    assert _inclusive_to_yf_end_date("2026-11-20") == "2026-11-21"
+    assert _inclusive_to_yf_end_date(None) is None
+
+    dates = pd.DatetimeIndex(["2026-11-19", "2026-11-20", "2026-11-23"])
+    fake_raw = pd.DataFrame(
+        {
+            "Close": [100.0, 102.0, 105.0],
+            "Volume": [1_000_000.0, 1_000_000.0, 1_000_000.0],
+            "Dividends": [0.0, 0.0, 0.0],
+            "Stock Splits": [0.0, 0.0, 0.0],
+        },
+        index=dates,
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_download(*args: object, **kwargs: object) -> pd.DataFrame:
+        captured.update(kwargs)
+        return fake_raw
+
+    with patch("src.ingest.market_data.yf.download", side_effect=_fake_download):
+        df = download_yfinance_batch(["SPY"], start_date="2026-11-19", end_date="2026-11-20")
+
+    assert captured["end"] == "2026-11-21"
+    assert list(df["date"]) == [pd.Timestamp("2026-11-19"), pd.Timestamp("2026-11-20")]
+
+    # Cached parquets containing bars past end_date must also be clipped strictly <= end_date
+    batch_dir = tmp_path / "batches"
+    batch_dir.mkdir()
+    spy_full = compute_pit_price_series(fake_raw, ticker="SPY")
+    aapl_full = compute_pit_price_series(fake_raw, ticker="AAPL")
+    spy_full.to_parquet(batch_dir / "benchmark_SPY.parquet", index=False)
+    aapl_full.to_parquet(batch_dir / "batch_0000_cached.parquet", index=False)
+
+    cmap = pd.DataFrame(
+        [
+            {
+                "cusip": "037833100",
+                "security_id": "S1",
+                "yahoo_ticker": "AAPL",
+                "is_us_common_stock": True,
+                "total_value_usd": 1_000.0,
+            }
+        ]
+    )
+    prices_df, spy_df, _ = ingest_market_data(
+        cmap,
+        end_date="2026-11-20",
+        batch_dir=batch_dir,
+        prices_output_path=tmp_path / "market_prices.parquet",
+        spy_output_path=tmp_path / "spy_prices.parquet",
+        survivorship_csv_path=tmp_path / "surv.csv",
+        process_only=True,
+        show_progress=False,
+    )
+    assert prices_df["date"].max() == pd.Timestamp("2026-11-20")
+    assert spy_df["date"].max() == pd.Timestamp("2026-11-20")

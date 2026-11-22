@@ -60,12 +60,12 @@ python -m src.run_pipeline --stage backtest               # Phase 4: Train (IS) 
 # 3. Fast ~60-second live ingestion smoke check (recent filings & top tickers)
 python -m src.run_pipeline --stage ingest --smoke
 
-# 4. Run full automated QA & unit test suite (73 tests) + linter
+# 4. Run full automated QA & unit test suite (75 tests) + linter
 pytest
 ruff check .
 ```
 
-> **Note:** To explore or re-run the pre-rendered results interactively after building the panel, open [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) in Jupyter / VS Code using the `.venv` kernel.
+> **Note:** To explore or re-run the pre-rendered results interactively after building the panel, open [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) in Jupyter / VS Code using the `.venv` kernel. `config/settings.yaml` pins `window.end_date: "2026-11-20"` **inclusively** across `master.idx` (`date_filed <= end_date`), `yfinance` (translated to exclusive `end="2026-11-21"` + clipped), and `companyfacts` (`filed_date <= end_date`) for deterministic cold-clone reproducibility (SEC's `company_tickers.json` is the sole unpinned live ticker-to-CIK registry; see [docs/data_governance.md](docs/data_governance.md) Section 7).
 
 **Expected Cold-Clone Runtime:**
 - `--stage ingest`: ~10–15 minutes with a free `OPENFIGI_API_KEY` (~25 minutes keyless); `< 30 seconds` when re-run from cached raw files.
@@ -119,7 +119,7 @@ For full empirical tables, regression diagnostics (`R²`, clustered SEs, deciles
 │   ├── pit/                  # PIT 13F-HR/A & CTR ledger, split-aligned market store, XBRL scrubber, daily panel
 │   ├── factors/              # ownership (core helpers), crowding (+ SPY regime), concentration, smart_money, manager_skill
 │   └── backtest/             # Rack-based corporate-action-clean T+1 MOC engine (horizons, D10-vs-Rest, OOS)
-├── tests/                    # 73 unit & adversarial PIT/lookahead/amendment/data-hygiene/backtest tests
+├── tests/                    # 75 unit & adversarial PIT/lookahead/amendment/data-hygiene/backtest tests
 ├── notebooks/
 │   └── factor_research.ipynb # Self-contained pre-executed research & backtest notebook (29 cells)
 ├── outputs/                  # Generated audit reports, factor CSVs, backtest parquets, and 12 charts

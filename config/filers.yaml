@@ -7,7 +7,9 @@
 #   filer_id:         Stable snake_case identifier used across PIT & factor tables
 #   canonical_name:   Human-readable canonical fund complex name
 #   style:            growth_tmt_ls | value_contrarian_ls | quality_generalist | closed_peer
-#   status:           active | closed  (documentation metadata only; never used as lookahead)
+#   status:           active (filed >= 2025-01-01 during screening) | closed (wound down <= 2024)
+#                     Documentation metadata only; NEVER used as lookahead — all exits retire
+#                     strictly PIT via `max_staleness_days=160` in `src/pit/ledger.py`.
 #   cik:              Primary / current 10-digit zero-padded canonical parent CIK
 #   predecessor_ciks: Optional date-bounded CIK migration overrides:
 #                       - cik: "0000000000"
@@ -514,7 +516,7 @@ filers:
     unrelated_ciks:
       - "0001812178" # Jackson Square Capital LLC (unrelated RIA)
     search_aliases: ["JACKSON SQUARE PARTNERS"]
-    notes: "Concentrated growth equities ($18.2B med AUM, 85 med entries)."
+    notes: "Concentrated growth equities ($18.2B med AUM, 85 med entries); last observed filing 2026-02-13 (retired strictly PIT via 160d staleness)."
 
   - filer_id: durable_capital
     canonical_name: "Durable Capital Partners"
@@ -596,7 +598,7 @@ filers:
     subsidiary_ciks: []
     unrelated_ciks: []
     search_aliases: ["CANDLESTICK CAPITAL"]
-    notes: "Jack Woodruff fundamental L/S ($4.0B med AUM, 81 med entries)."
+    notes: "Jack Woodruff fundamental L/S ($4.0B med AUM, 81 med entries); last observed filing 2026-02-12 (retired strictly PIT via 160d staleness)."
 
   - filer_id: skye_global
     canonical_name: "Skye Global Management"
@@ -842,7 +844,7 @@ filers:
     subsidiary_ciks: []
     unrelated_ciks: []
     search_aliases: ["FPR PARTNERS"]
-    notes: "Bob Peck & Andy Raab concentrated value ($3.8B med AUM, 17 med entries)."
+    notes: "Bob Peck & Andy Raab concentrated value ($3.8B med AUM, 17 med entries); last observed filing 2025-05-14 (retired strictly PIT via 160d staleness)."
 
   - filer_id: southpoint
     canonical_name: "Southpoint Capital Advisors"
@@ -1009,7 +1011,7 @@ filers:
     subsidiary_ciks: []
     unrelated_ciks: []
     search_aliases: ["COHO PARTNERS"]
-    notes: "Concentrated defensive quality ($4.1B med AUM, 57 med entries)."
+    notes: "Concentrated defensive quality ($4.1B med AUM, 57 med entries); last observed filing 2025-10-14 (retired strictly PIT via 160d staleness)."
 
   - filer_id: sound_shore
     canonical_name: "Sound Shore Management"

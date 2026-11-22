@@ -247,6 +247,7 @@ def build_master_index(
     start_qtr: int = 1,
     end_year: int | None = None,
     end_qtr: int | None = None,
+    end_date: str | None = None,
     form_types: Iterable[str] | None = ("13F-HR", "13F-HR/A"),
     raw_dir: Path = RAW_INDEX_DIR,
     output_path: Path = DEFAULT_OUTPUT_PARQUET,
@@ -255,10 +256,21 @@ def build_master_index(
     max_workers: int = 5,
     show_progress: bool = True,
 ) -> pd.DataFrame:
-    """Download/cache quarterly master indexes concurrently and build a consolidated Parquet."""
+    """Download/cache quarterly master indexes concurrently and build a consolidated Parquet.
+
+    When `end_date` is provided (inclusive `YYYY-MM-DD`), derives `end_year`/`end_qtr` if
+    omitted and strictly clips `date_filed <= end_date` so future filings added to the final
+    quarter archive never drift counts or trigger unexpected strict-audit failures on cold clones.
+    """
     cur_year, cur_qtr = current_year_quarter()
-    eff_end_year = end_year if end_year is not None else cur_year
-    eff_end_qtr = end_qtr if end_qtr is not None else cur_qtr
+    end_ts = pd.Timestamp(end_date).normalize() if end_date else None
+    if end_ts is not None:
+        derived_year = int(end_ts.year)
+        derived_qtr = int((end_ts.month - 1) // 3 + 1)
+    else:
+        derived_year, derived_qtr = cur_year, cur_qtr
+    eff_end_year = end_year if end_year is not None else derived_year
+    eff_end_qtr = end_qtr if end_qtr is not None else derived_qtr
 
     quarters = list(iter_quarters(start_year, start_qtr, eff_end_year, eff_end_qtr))
     workers = max(1, min(max_workers, len(quarters)))
@@ -314,6 +326,8 @@ def build_master_index(
 
     if frames:
         combined = pd.concat(frames, ignore_index=True)
+        if end_ts is not None and not combined.empty:
+            combined = combined[combined["date_filed"] <= end_ts].copy()
         combined = (
             combined.drop_duplicates(subset=["cik", "accession_number", "form_type"])
             .sort_values(["date_filed", "cik", "accession_number"])
@@ -395,6 +409,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Last quarter of --end-year (default: current quarter).",
     )
     parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="Optional inclusive YYYY-MM-DD filing cutoff (defaults to settings.yaml end_date).",
+    )
+    parser.add_argument(
         "--year",
         type=int,
         default=None,
@@ -456,12 +476,18 @@ def main(argv: list[str] | None = None) -> int:
         qtr_num = int(args.qtr.replace("QTR", ""))
         start_year = end_year = args.year
         start_qtr = end_qtr = qtr_num
+        end_date_eff: str | None = args.end_date
         output_path = PROCESSED_DATA_DIR / f"edgar_13f_index_{args.year}_{args.qtr}.parquet"
     else:
         start_year = args.start_year
         start_qtr = args.start_qtr
         end_year = args.end_year
         end_qtr = args.end_qtr
+        end_date_eff = (
+            args.end_date
+            if args.end_date is not None
+            else cfg.settings.get("window", {}).get("end_date")
+        )
         output_path = DEFAULT_OUTPUT_PARQUET
 
     workers = args.workers if args.workers is not None else int(edgar_cfg.get("max_workers", 5))
@@ -478,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
             start_qtr=start_qtr,
             end_year=end_year,
             end_qtr=end_qtr,
+            end_date=end_date_eff,
             form_types=form_types,
             output_path=output_path,
             refresh_current=args.refresh_current,

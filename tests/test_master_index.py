@@ -126,3 +126,28 @@ def test_build_master_index_caches_and_writes_parquet(tmp_path: Path) -> None:
     )
     assert len(df_cached) == 3
     assert mock_client.get.call_count == 1
+
+
+def test_build_master_index_enforces_inclusive_end_date_cutoff(tmp_path: Path) -> None:
+    """Pinned end_date strictly filters date_filed <= end_date inside the final quarter."""
+    mock_client = MagicMock(spec=EdgarClient)
+    gz_payload = gzip.compress(SAMPLE_MASTER_IDX.encode("latin-1"))
+
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.content = gz_payload
+    mock_client.get.return_value = resp
+
+    df = build_master_index(
+        mock_client,
+        start_year=2024,
+        start_qtr=1,
+        end_date="2024-02-20",
+        raw_dir=tmp_path / "raw",
+        output_path=tmp_path / "processed" / "index_pinned.parquet",
+        refresh_current=False,
+        show_progress=False,
+    )
+    # SAMPLE_MASTER_IDX has two 2024-02-14 filings and one 2024-03-01 filing -> drop 2024-03-01
+    assert len(df) == 2
+    assert df["date_filed"].max() == pd.Timestamp("2024-02-14")

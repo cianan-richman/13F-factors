@@ -100,6 +100,7 @@ def run_ingest_stage(config: AppConfig, *, smoke: bool = False) -> None:
             start_qtr=1,
             end_year=end_year,
             end_qtr=end_qtr,
+            end_date=end_date_cfg,
             form_types=edgar_cfg.get("form_types", ["13F-HR", "13F-HR/A"]),
             max_workers=workers,
         )
@@ -153,6 +154,7 @@ def run_ingest_stage(config: AppConfig, *, smoke: bool = False) -> None:
                 ingest_shares_outstanding,
                 cusip_map,
                 edgar,
+                end_date=end_date_cfg,
                 max_workers=workers,
                 limit=ticker_limit,
             )

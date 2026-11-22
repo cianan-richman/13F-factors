@@ -52,6 +52,13 @@ DEFAULT_MARKET_START = "2014-01-01"
 _BLOOMBERG_DEAD_TICKER_RE = re.compile(r"^\d+[A-Z]$")
 
 
+def _inclusive_to_yf_end_date(end_date: str | None) -> str | None:
+    """Convert an inclusive `YYYY-MM-DD` cutoff into `yfinance`'s exclusive `end` string."""
+    if not end_date:
+        return None
+    return (pd.Timestamp(end_date).normalize() + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+
+
 def filter_queryable_tickers(cusip_map_df: pd.DataFrame) -> list[str]:
     """Return sorted unique Yahoo-queryable US Common Stock tickers from `cusip_figi_map`."""
     cm = cusip_map_df[cusip_map_df["is_us_common_stock"]].copy()
@@ -216,10 +223,16 @@ def download_yfinance_batch(
     end_date: str | None = None,
     max_retries: int = 4,
 ) -> pd.DataFrame:
-    """Download one batch of tickers via `yfinance` with YFRateLimitError detection & retry."""
+    """Download one batch of tickers via `yfinance` with YFRateLimitError detection & retry.
+
+    `end_date` is treated as **inclusive** (`date <= end_date`); because `yf.download`'s
+    `end` parameter is exclusive, we pass `end_date + 1 day` and clip defensively.
+    """
     if not tickers:
         return pd.DataFrame()
 
+    yf_end = _inclusive_to_yf_end_date(end_date)
+    end_ts = pd.Timestamp(end_date).normalize() if end_date else None
     remaining = list(tickers)
     collected: list[pd.DataFrame] = []
 
@@ -233,7 +246,7 @@ def download_yfinance_batch(
             raw = yf.download(
                 tickers=remaining,
                 start=start_date,
-                end=end_date,
+                end=yf_end,
                 auto_adjust=False,
                 actions=True,
                 group_by="ticker",
@@ -300,7 +313,11 @@ def download_yfinance_batch(
 
     if not collected:
         return pd.DataFrame()
-    return pd.concat(collected, ignore_index=True)
+    out = pd.concat(collected, ignore_index=True)
+    if end_ts is not None and not out.empty:
+        out["date"] = pd.to_datetime(out["date"]).dt.normalize()
+        out = out[out["date"] <= end_ts].reset_index(drop=True)
+    return out
 
 
 def build_survivorship_report(
@@ -457,7 +474,10 @@ def ingest_market_data(
 
     if batch_frames:
         prices_df = pd.concat(batch_frames, ignore_index=True)
-        prices_df["date"] = pd.to_datetime(prices_df["date"])
+        prices_df["date"] = pd.to_datetime(prices_df["date"]).dt.normalize()
+        if end_date:
+            end_ts = pd.Timestamp(end_date).normalize()
+            prices_df = prices_df[prices_df["date"] <= end_ts].copy()
         prices_df = (
             prices_df.drop_duplicates(subset=["date", "yahoo_ticker"])
             .sort_values(["yahoo_ticker", "date"])
@@ -466,7 +486,10 @@ def ingest_market_data(
     else:
         prices_df = pd.DataFrame()
 
-    spy_df["date"] = pd.to_datetime(spy_df["date"])
+    spy_df["date"] = pd.to_datetime(spy_df["date"]).dt.normalize()
+    if end_date:
+        end_ts = pd.Timestamp(end_date).normalize()
+        spy_df = spy_df[spy_df["date"] <= end_ts].copy()
     spy_df = spy_df.sort_values("date").reset_index(drop=True)
 
     # 3. Compute strictly PIT 252-day trailing rolling beta vs. SPY
