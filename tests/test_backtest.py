@@ -90,7 +90,7 @@ def test_buffered_and_quarterly_eliminate_daily_drift_churn_and_apply_borrow() -
     """Verify buffered & quarterly modes avoid drift trades and deduct exact borrow_bps_pa."""
     racks = _make_synthetic_racks(n_days=10)
 
-    # Buffered with 200 bps band (= $2,500 > $1,000 daily drift on S1) -> ZERO trades on day 1!
+    # Buffered with 5% per-position band (> 1% daily drift) -> ZERO trades on day 1!
     cfg_buf = BacktestConfig(
         notional_per_bps=50_000.0,
         max_adv_pct=0.05,
@@ -98,7 +98,7 @@ def test_buffered_and_quarterly_eliminate_daily_drift_churn_and_apply_borrow() -
         spy_hedge_cost_bps=0.0,
         borrow_bps_pa=252.0,  # 1 bp/day exact -> $12.50/day on $125k short book
         rebalance_mode="buffered",
-        buffer_bps_of_gmv=200.0,
+        position_buffer_pct=0.05,
     )
     out_buf = run_rack_backtest(racks, cfg_buf)
     df_buf = out_buf["daily"]
@@ -160,3 +160,70 @@ def test_fixed_capital_base_preserves_sharpe_and_honest_return() -> None:
     assert np.isclose(st_fixed["sharpe"], st_auto["sharpe"])
     # Fixed full-scale capital base avoids 2x Return inflation from cash days!
     assert np.isclose(st_fixed["ann_return"], 0.5 * st_auto["ann_return"])
+
+
+def test_buffered_relative_band_and_dollar_neutrality_guard() -> None:
+    """Asymmetric dollar-neutral book (2 large shorts vs. 40 small longs) stays strictly neutral."""
+    n_days = 25
+    n_short = 2
+    n_long = 40
+    n_sec = n_short + n_long
+    dates = pd.bdate_range("2022-01-03", periods=n_days)
+    fwd_dates = pd.bdate_range("2022-01-04", periods=n_days)
+    secs = pd.Index([f"S{i}" for i in range(n_short)] + [f"L{i}" for i in range(n_long)])
+
+    # Target: 2 shorts @ -$100k (-$200k) vs. 40 longs @ +$5k (+$200k) -> exact $0 net target!
+    er_row = np.array([-2.0] * n_short + [0.1] * n_long, dtype=np.float64)
+    er = np.tile(er_row, (n_days, 1))
+    # Force a sign flip on L0 on day 20 to verify immediate crossing through zero
+    er[20:, n_short] = -0.1
+    er[20:, n_short + 1] = 0.2  # preserve exact $0 net target on days 20..24
+
+    # Persistent +2%/day drift on longs, 0%/day on shorts (adversarial long-drift stress!)
+    prev_raw = np.zeros((n_days, n_sec), dtype=np.float64)
+    prev_raw[:, n_short:] = 0.02
+    fwd_spy = np.zeros(n_days, dtype=np.float64)
+    prev_spy = np.zeros(n_days, dtype=np.float64)
+    beta = np.ones((n_days, n_sec), dtype=np.float64)
+    fwd_raw = np.zeros((n_days, n_sec), dtype=np.float64)
+    fwd_badj = np.zeros((n_days, n_sec), dtype=np.float64)
+    adv = np.full((n_days, n_sec), 50_000_000.0, dtype=np.float64)
+
+    racks = BacktestRacks(
+        dates=dates,
+        fwd_ret_dates=fwd_dates,
+        securities=secs,
+        expected_ret_bps=er,
+        fwd_beta_adj_ret=fwd_badj,
+        fwd_day_ret=fwd_raw,
+        prev_day_ret=prev_raw,
+        beta_lag1=beta,
+        adv_20d_usd=adv,
+        fwd_spy_ret=fwd_spy,
+        prev_spy_ret=prev_spy,
+    )
+
+    cfg = BacktestConfig(
+        notional_per_bps=50_000.0,
+        max_adv_pct=0.05,
+        one_way_cost_bps=5.0,
+        spy_hedge_cost_bps=1.0,
+        rebalance_mode="buffered",
+        position_buffer_pct=0.20,
+        max_net_exposure_pct=0.02,
+    )
+    out = run_rack_backtest(racks, cfg)
+    df = out["daily"]
+    st = out["stats"]
+
+    # Hard dollar-neutrality invariant: |long_gmv - short_gmv| / gmv <= 2% on EVERY single day
+    net_frac = (df["long_gmv"] - df["short_gmv"]).abs() / df["gmv"]
+    assert float(net_frac.max()) <= 0.02 + 1e-9
+    assert st["max_abs_net_exposure_pct"] <= 0.02 + 1e-9
+    # Guard must have actively fired against the +2%/day correlated long drift
+    assert st["n_net_recenter_days"] > 0
+    # Day 1 drift is +2% on $200k longs (+$4k -> net_frac = 4/404 = 0.99% <= 2%, within 20% band)
+    # so day 1 incurs ZERO trades!
+    assert np.isclose(df["traded_notional"].iloc[1], 0.0)
+    # Day 20 sign flip on L0 (+$5k -> -$5k) must trigger trading cleanly
+    assert df["traded_notional"].iloc[20] > 0.0

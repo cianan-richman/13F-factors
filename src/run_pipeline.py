@@ -254,7 +254,9 @@ def run_backtest_stage(config: AppConfig) -> None:
     """Execute Phase 4: Train (IS) horizon & regime studies + Frozen OOS (2024+) evaluation."""
     exec_cfg = config.settings["execution"]
     costs_cfg = config.settings["costs"]
-    buf_bps = float(exec_cfg.get("turnover_buffer_bps", 25.0))
+    pos_buf = float(exec_cfg.get("position_buffer_pct", 0.20))
+    max_net = exec_cfg.get("max_net_exposure_pct", 0.02)
+    max_net_pct = float(max_net) if max_net is not None else None
     q_offset = int(exec_cfg.get("fixed_rebalance_offset_days", 46))
     one_way_bps = float(costs_cfg.get("large_cap_one_way_bps", 5.0))
 
@@ -264,7 +266,8 @@ def run_backtest_stage(config: AppConfig) -> None:
         notional_per_bps=50_000.0,
         max_adv_pct=0.05,
         one_way_cost_bps=one_way_bps,
-        buffer_bps_of_gmv=buf_bps,
+        position_buffer_pct=pos_buf,
+        max_net_exposure_pct=max_net_pct,
         quarterly_offset_days=q_offset,
     )
     d10_is = run_d10_vs_rest_regime_study(
@@ -272,13 +275,15 @@ def run_backtest_stage(config: AppConfig) -> None:
         notional_per_bps=50_000.0,
         max_adv_pct=0.05,
         one_way_cost_bps=one_way_bps,
-        buffer_bps_of_gmv=buf_bps,
+        position_buffer_pct=pos_buf,
+        max_net_exposure_pct=max_net_pct,
     )
     oos = run_frozen_oos_evaluation(
         notional_per_bps=50_000.0,
         max_adv_pct=0.05,
         one_way_cost_bps=one_way_bps,
-        buffer_bps_of_gmv=buf_bps,
+        position_buffer_pct=pos_buf,
+        max_net_exposure_pct=max_net_pct,
         frozen_slope_bps=FROZEN_IS_CROWDING_BETA_BPS,
     )
 

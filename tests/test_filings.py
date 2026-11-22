@@ -492,4 +492,79 @@ def test_corrupt_cache_self_heals_and_fault_isolation_preserves_batch(tmp_path: 
     assert list(failures_df["accession_number"]) == ["0001167483-24-000099"]
 
 
+def test_quarantines_corrupt_column_swapped_ssh_prnamt_while_keeping_legit_millions() -> None:
+    """Column-swapped filings (like Harding Loevner 2015-01-12) are quarantined strictly PIT."""
+    # 12 positions with dollar values (~$150M) mistakenly pasted into <sshPrnamt> and shares/1000
+    # (~1,500) in <value>, triggering pre_2023_reported_in_millions -> >$1T book & >50M median sh
+    corrupt_rows = "\n".join(
+        f"""  <infoTable>
+    <nameOfIssuer>CORP {i}</nameOfIssuer><titleOfClass>COM</titleOfClass>
+    <cusip>0000001{i:02d}</cusip><value>{1500 + i * 100}</value>
+    <shrsOrPrnAmt>
+      <sshPrnamt>{150_000_000 + i * 1_000_000}</sshPrnamt><sshPrnamtType>SH</sshPrnamtType>
+    </shrsOrPrnAmt>
+  </infoTable>"""
+        for i in range(12)
+    )
+    corrupt_xml = f"""<SEC-DOCUMENT>test.txt
+<SEC-HEADER><ACCEPTANCE-DATETIME>20150112160000</SEC-HEADER>
+<DOCUMENT><TYPE>13F-HR<TEXT><XML>
+<edgarSubmission><formData><coverPage>
+<reportCalendarOrQuarter>12-31-2014</reportCalendarOrQuarter>
+</coverPage></formData></edgarSubmission></XML></TEXT></DOCUMENT>
+<DOCUMENT><TYPE>INFORMATION TABLE<TEXT><XML>
+<informationTable>
+{corrupt_rows}
+</informationTable></XML></TEXT></DOCUMENT></SEC-DOCUMENT>"""
+
+    meta_bad, _ = parse_filing_submission(
+        corrupt_xml,
+        {
+            "filer_id": "harding_loevner",
+            "canonical_name": "Harding Loevner",
+            "style": "quality_generalist",
+            "cik": "0001085146",
+            "accession_number": "0001085146-15-000074",
+            "form_type": "13F-HR",
+            "date_filed": "2015-01-12",
+        },
+    )
+    assert meta_bad["shares_unit_suspect"] is True
+    assert meta_bad["parse_status"] == "quarantined_corrupt_shares"
+
+    # Legitimate pre-2023 filing erroneously reported in $1M units (e.g., $2B total book, 2M shares)
+    legit_millions_xml = """<SEC-DOCUMENT>test.txt
+<SEC-HEADER><ACCEPTANCE-DATETIME>20150214160000</SEC-HEADER>
+<DOCUMENT><TYPE>13F-HR<TEXT><XML>
+<edgarSubmission><formData><coverPage>
+<reportCalendarOrQuarter>12-31-2014</reportCalendarOrQuarter>
+</coverPage></formData></edgarSubmission></XML></TEXT></DOCUMENT>
+<DOCUMENT><TYPE>INFORMATION TABLE<TEXT><XML>
+<informationTable>
+  <infoTable>
+    <nameOfIssuer>GOOD CORP</nameOfIssuer><titleOfClass>COM</titleOfClass>
+    <cusip>123456101</cusip><value>200</value>
+    <shrsOrPrnAmt><sshPrnamt>2000000</sshPrnamt><sshPrnamtType>SH</sshPrnamtType></shrsOrPrnAmt>
+  </infoTable>
+</informationTable></XML></TEXT></DOCUMENT></SEC-DOCUMENT>"""
+
+    meta_ok, rows_ok = parse_filing_submission(
+        legit_millions_xml,
+        {
+            "filer_id": "luxor_capital",
+            "canonical_name": "Luxor Capital",
+            "style": "event_driven",
+            "cik": "0001362597",
+            "accession_number": "0001362597-15-000001",
+            "form_type": "13F-HR",
+            "date_filed": "2015-02-14",
+        },
+    )
+    assert meta_ok["value_multiplier"] == 1_000_000
+    assert meta_ok["shares_unit_suspect"] is False
+    assert meta_ok["parse_status"] == "ok"
+    assert rows_ok[0]["value_usd"] == 200_000_000.0
+
+
+
 

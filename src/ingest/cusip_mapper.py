@@ -43,7 +43,7 @@ DEFAULT_CACHE_JSONL = RAW_OPENFIGI_DIR / "cusip_cache.jsonl"
 DEFAULT_CUSIP_MAP_PARQUET = PROCESSED_DATA_DIR / "cusip_figi_map.parquet"
 DEFAULT_SUMMARY_CSV = OUTPUTS_DIR / "cusip_mapping_summary.csv"
 
-# Bloomberg exchange codes for US composite and US primary/OTC equity venues (ordered by preference)
+# Bloomberg exchange codes for listed US equity venues only (OTC venues UD/UO/PQ excluded)
 US_EXCHANGE_PRIORITY: dict[str, int] = {
     "US": 100,  # US Composite (canonical US ticker)
     "UN": 90,   # NYSE
@@ -54,10 +54,10 @@ US_EXCHANGE_PRIORITY: dict[str, int] = {
     "UP": 80,   # NYSE Arca
     "UF": 75,   # Cboe BZX
     "UV": 70,   # IEX
-    "UD": 60,   # FINRA / OTC
-    "UO": 55,   # OTC Bulletin Board / Pink
-    "PQ": 50,   # OTC Pink
 }
+
+# Standard FINRA/Nasdaq 5-letter OTC suffixes: F (foreign ordinary), Y (OTC ADR), Q (bankrupt)
+_OTC_FOREIGN_OR_BANKRUPT_TICKER_RE = re.compile(r"^[A-Z]{4}[FYQ]$")
 
 _NON_COMMON_KEYWORDS = (
     "WARRANT",
@@ -97,9 +97,13 @@ def normalize_yahoo_ticker(ticker: str) -> str:
 
 
 def is_common_stock_candidate(rec: dict[str, Any]) -> bool:
-    """Return True if an OpenFIGI record is a US Common Stock (excludes REITs/ETFs/ADRs)."""
+    """Return True for listed US Common Stock (excludes OTC/F/Y/Q/REIT/ETF/ADR)."""
     exch = str(rec.get("exchCode") or "").upper()
     if exch not in US_EXCHANGE_PRIORITY:
+        return False
+
+    raw_tkr = normalize_yahoo_ticker(str(rec.get("ticker") or ""))
+    if raw_tkr and _OTC_FOREIGN_OR_BANKRUPT_TICKER_RE.match(raw_tkr):
         return False
 
     sec_type2 = str(rec.get("securityType2") or "").strip().lower()

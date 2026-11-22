@@ -30,7 +30,8 @@ universe:
 
 execution:
   lag_trading_days: 1                 # Filing accepted day T -> trade at T+1 MOC
-  turnover_buffer_bps: 25             # No-trade zone around drifted weights
+  position_buffer_pct: 0.20           # ±20% per-position trade-to-boundary no-trade zone
+  max_net_exposure_pct: 0.02          # Hard ±2% GMV net-dollar neutrality guard on L/S books
   rebalance_modes:
     - "event_driven"
     - "fixed_quarterly_post_window"

@@ -43,7 +43,13 @@ RAW_FILINGS_DIR = RAW_DATA_DIR / "edgar_filings"
 DEFAULT_META_PARQUET = PROCESSED_DATA_DIR / "edgar_13f_filings_meta.parquet"
 DEFAULT_HOLDINGS_RAW_PARQUET = PROCESSED_DATA_DIR / "edgar_13f_holdings_raw.parquet"
 DEFAULT_FAILURES_CSV = OUTPUTS_DIR / "edgar_ingest_failures.csv"
-OK_PARSE_STATUSES = {"ok", "zero_holdings"}
+OK_PARSE_STATUSES = {"ok", "zero_holdings", "quarantined_corrupt_shares"}
+
+# Strictly PIT single-filing <sshPrnamt> corruption bounds (catches column-swapped XMLs
+# like Harding Loevner 2015-01-12 where $ values were pasted into <sshPrnamt>).
+MAX_PLAUSIBLE_FILING_BOOK_USD = 1_000_000_000_000.0  # $1T single active manager 13F cap
+MAX_PLAUSIBLE_MILLIONS_BOOK_USD = 500_000_000_000.0  # $500B cap when 1e6x multiplier triggered
+MAX_PLAUSIBLE_MEDIAN_SHARES = 50_000_000.0  # >50M median shares/row across >=10 positions
 
 # SEC Form 13F rule change: filings submitted on/after 2023-01-03 report <value> in exact dollars;
 # filings before 2023-01-03 reported <value> in thousands of dollars.
@@ -496,12 +502,40 @@ def parse_filing_submission(
         median_implied_price = np.nan
         value_unit_suspect = False
 
+    # Strictly PIT <sshPrnamt> corruption guard: catches column-swapped XML filings where dollar
+    # values were pasted into <sshPrnamt> (e.g., Harding Loevner 2015-01-12 -> $1.84T implied book
+    # and >100M shares/row, restated 2 days later), quarantined before entering PitHoldingsLedger.
+    sh_rows = [
+        r
+        for r in holdings_rows
+        if r["ssh_prnamt_type"] == "SH"
+        and r["put_call"] == ""
+        and r["ssh_prnamt"] is not None
+        and r["ssh_prnamt"] > 0
+    ]
+    total_sh_value_usd = sum(float(r["value_usd"] or 0.0) for r in sh_rows)
+    median_sh_prnamt = (
+        float(np.median([float(r["ssh_prnamt"]) for r in sh_rows])) if sh_rows else 0.0
+    )
+    shares_unit_suspect = bool(
+        total_sh_value_usd > MAX_PLAUSIBLE_FILING_BOOK_USD
+        or (
+            applied_multiplier == 1_000_000
+            and (
+                total_sh_value_usd > MAX_PLAUSIBLE_MILLIONS_BOOK_USD
+                or (len(sh_rows) >= 10 and median_sh_prnamt > MAX_PLAUSIBLE_MEDIAN_SHARES)
+            )
+        )
+    )
+
     if primary_xml is None and infotable_xml is None:
         parse_status = "no_xml_found"
     elif infotable_xml is None:
         parse_status = "no_info_table"
     elif not holdings_rows:
         parse_status = "zero_holdings"
+    elif shares_unit_suspect:
+        parse_status = "quarantined_corrupt_shares"
     else:
         parse_status = "ok"
 
@@ -547,6 +581,7 @@ def parse_filing_submission(
         "parsed_row_count": len(holdings_rows),
         "median_implied_price": median_implied_price,
         "value_unit_suspect": value_unit_suspect,
+        "shares_unit_suspect": shares_unit_suspect,
         "other_managers_ciks": primary_meta.get("other_managers_ciks", ""),
         "parse_status": parse_status,
         "error_detail": "",
@@ -582,6 +617,7 @@ def _build_error_meta(manifest_row: dict[str, Any], status: str, detail: str) ->
         "parsed_row_count": 0,
         "median_implied_price": np.nan,
         "value_unit_suspect": False,
+        "shares_unit_suspect": False,
         "other_managers_ciks": "",
         "parse_status": status,
         "error_detail": detail,

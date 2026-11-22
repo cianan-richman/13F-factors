@@ -59,14 +59,21 @@ DEFAULT_THRESHOLD_ANCHOR_DATE = "2014-12-31"  # Strictly pre-IS anchor (zero loo
 DEFAULT_THRESHOLD_SPY_SMA_DAYS = 60  # Smooth trailing SPY raw_close window ending t-1
 DEFAULT_ANCHOR_MCAP_USD = 1_000_000_000.0  # $1.0B on 2014-12-31 (scaled forward by SPY price)
 DEFAULT_ANCHOR_ADV_USD = 5_000_000.0  # $5.0M on 2014-12-31 (constant 0.5% turnover floor)
-DEFAULT_MAX_SHARES_AGE_DAYS = 460  # Accommodates annual 20-F filers; drops multi-yr stale XBRL
+DEFAULT_MAX_SHARES_AGE_DAYS = 460  # Drops multi-year stale XBRL share counts
+DOMESTIC_SEC_FORMS: frozenset[str] = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A"})
 DEFAULT_UNEQUAL_CLASS_PRICE_RATIO = 2.5  # Detects BRK-A/BRK-B-style unequal economic ratios
-# Strictly PIT SEC XBRL unit-scale typo guards (catches 1e3x/1e6x/1e9x & 1e-3x inline scale typos)
+# Strictly PIT SEC XBRL unit-scale & sequential QoQ typo guards (zero lookahead)
 DEFAULT_XBRL_MAX_MCAP_ANCHOR_USD = 4_000_000_000_000.0  # $4T on 2014-12-31, scaled by SPY SMA60
 DEFAULT_XBRL_UPWARD_TYPO_MIN_MCAP_USD = 50_000_000_000.0  # Check tiny-turnover typos above $50B
-DEFAULT_XBRL_UPWARD_TYPO_MIN_ADV_USD = 5_000_000.0  # Liquid US-traded floor (avoids OTC F-shares)
+DEFAULT_XBRL_UPWARD_TYPO_MIN_ADV_USD = 5_000_000.0  # Liquid US-traded floor
 DEFAULT_XBRL_UPWARD_TYPO_MAX_TURNOVER = 2.5e-5  # <0.0025%/day implies 1000x upward share typo
 DEFAULT_XBRL_DOWNWARD_TYPO_MIN_TURNOVER = 2.5  # >250%/day sustained 20d ADV implies 1e-3x typo
+DEFAULT_XBRL_PREPRICE_MAX_SHARES = 50_000_000_000.0  # Pre-price-history cap (e.g., 2013 CLX 131B)
+DEFAULT_XBRL_MIN_QOQ_RATIO = 0.20  # >5x QoQ share collapse without reverse split (e.g., ZTS 20x)
+DEFAULT_XBRL_MAX_QOQ_RATIO = 50.0  # >50x QoQ share jump on $250M+ issuer without forward split
+DEFAULT_XBRL_UP_JUMP_MIN_MCAP_USD = 250_000_000.0  # Preserves micro-cap equity recaps (e.g., ABEO)
+DEFAULT_XBRL_REV_SPLIT_PX_RATIO = 3.0  # Price jump confirming a genuine reverse split
+DEFAULT_XBRL_FWD_SPLIT_PX_RATIO = 0.20  # Price drop confirming a genuine forward split
 
 
 class PitMarketStore:
@@ -308,9 +315,11 @@ class PitMarketStore:
         }
 
     def _scrub_pit_xbrl_scale_outliers(self, so: pd.DataFrame) -> pd.DataFrame:
-        """Remove SEC XBRL inline unit-scale typos strictly PIT using market data <= `filed_date`.
+        """Remove SEC XBRL scale & QoQ jump typos strictly PIT using data <= `filed_date`.
 
-        Catches three physical impossibilities visible on `filed_date` with zero lookahead:
+        Pass 1 (single-filing physical impossibilities visible on `filed_date`):
+          0. Pre-price-history cap (`filed_date` before ticker's first market bar):
+             `shares_outstanding > 50B` (catches 2013 pre-history typos like CLX 130.9B).
           1. Upward mega-scale typos (`1e3x`/`1e6x`/`1e9x`, e.g., EEFT, YUM, AJG, EIX, STNE):
              `shares * raw_close(<= filed_date) > $4T * spy_scale(filed_date - 1)`.
           2. Upward mid-cap `1e3x` typos (e.g., SHOE, CPK, WWD, TXNM):
@@ -319,27 +328,52 @@ class PitMarketStore:
           3. Downward `1e-3x` typos (e.g., ARW 2017-11-02, AAPL 2014-04-24):
              sustained 20-day daily turnover `adv_20d / implied_mcap > 2.5` (`250%/day`).
 
+        Pass 2 (strictly PIT chronological sequential QoQ share-jump guard per ticker):
+          Compares each filing on `cur_dt` solely against the latest previously accepted priced
+          filing `(anchor_dt < cur_dt, anchor_sh, anchor_px)` adjusted forward for splits in
+          `(anchor_dt, cur_dt]` (`k = get_forward_split_factor(tkr, anchor_dt, cur_dt)`):
+          4a. Downward `>5x` collapse (`sh_ratio < 0.20`) without a confirming reverse-split
+              price jump (`px_ratio < 3.0`) — catches ZTS 20x (2019-08-06), HPQ/NTAP 10x typos.
+          4b. Upward `>50x` jump (`sh_ratio > 50.0`) on an established `$250M+` issuer without a
+              confirming forward-split price drop (`px_ratio > 0.20`) — catches CIGI/TBLA/CRL
+              scale typos while preserving legitimate micro-cap recaps (e.g., ABEO) and splits.
+
         Because bad rows are removed before `(filed_date, end_date, tag_priority)` selection, a
         bad cover-page `dei` tag seamlessly falls back to a clean `us-gaap` tag in the same
         filing (or the prior clean quarter's filing), preserving exact parity between single-date
         snapshots and vectorized daily panel builds.
         """
-        if so.empty or not self._ticker_arrays:
+        if so.empty:
             return so
 
+        so_reset = so.reset_index(drop=True)
+        keep_mask = np.ones(len(so_reset), dtype=bool)
+
+        if not self._ticker_arrays:
+            bad_pre = so_reset["shares_outstanding"].to_numpy(dtype=np.float64) > (
+                DEFAULT_XBRL_PREPRICE_MAX_SHARES
+            )
+            keep_mask[bad_pre] = False
+            return so_reset.loc[keep_mask].reset_index(drop=True)
+
         # Precompute strictly PIT SPY scale per unique filed_date (uses SPY SMA60 ending t-1)
-        unique_fdts = so["filed_date"].dropna().unique()
+        unique_fdts = so_reset["filed_date"].dropna().unique()
         spy_scale_map: dict[pd.Timestamp, float] = {
             pd.Timestamp(dt): self.get_dynamic_thresholds(dt)["spy_threshold_scale"]
             for dt in unique_fdts
         }
 
-        keep_mask = np.ones(len(so), dtype=bool)
-        so_reset = so.reset_index(drop=True)
+        has_tag_prio = "tag_priority" in so_reset.columns
 
         for tkr, grp in so_reset.groupby("yahoo_ticker", sort=False):
             arr = self._ticker_arrays.get(str(tkr))
+            sh_all = grp["shares_outstanding"].to_numpy(dtype=np.float64)
+            grp_idxs = grp.index.to_numpy()
+
             if arr is None or len(arr["dates_ns"]) == 0:
+                bad_unpriced = sh_all > DEFAULT_XBRL_PREPRICE_MAX_SHARES
+                if np.any(bad_unpriced):
+                    keep_mask[grp_idxs[bad_unpriced]] = False
                 continue
 
             dates_ns = arr["dates_ns"]
@@ -349,42 +383,121 @@ class PitMarketStore:
             f_ns = grp["filed_date"].to_numpy(dtype="datetime64[ns]")
             pos = np.searchsorted(dates_ns, f_ns, side="right") - 1
             valid_pos = pos >= 0
-            if not np.any(valid_pos):
+
+            # Pass 1a: Pre-price-history extreme share typo cap (strictly PIT)
+            if np.any(~valid_pos):
+                unpriced_idxs = grp_idxs[~valid_pos]
+                bad_unpriced = sh_all[~valid_pos] > DEFAULT_XBRL_PREPRICE_MAX_SHARES
+                if np.any(bad_unpriced):
+                    keep_mask[unpriced_idxs[bad_unpriced]] = False
+
+            # Pass 1b: Single-filing market-cap & turnover physical impossibility checks
+            if np.any(valid_pos):
+                idxs = grp_idxs[valid_pos]
+                pos_v = pos[valid_pos]
+                sh_v = sh_all[valid_pos]
+                px_v = raw_close[pos_v]
+                adv_v = adv_arr[pos_v]
+                scales_v = np.fromiter(
+                    (spy_scale_map[pd.Timestamp(d)] for d in grp["filed_date"].iloc[valid_pos]),
+                    dtype=np.float64,
+                    count=len(idxs),
+                )
+
+                px_ok = np.isfinite(px_v) & (px_v > 0.0)
+                imp_mcap = np.where(px_ok, sh_v * px_v, np.nan)
+                adv_ok = px_ok & np.isfinite(adv_v) & (adv_v > 0.0) & (imp_mcap > 0.0)
+                turn = np.where(adv_ok, adv_v / imp_mcap, np.nan)
+
+                bad_mega = px_ok & (imp_mcap > DEFAULT_XBRL_MAX_MCAP_ANCHOR_USD * scales_v)
+                bad_up_turn = (
+                    adv_ok
+                    & (imp_mcap > DEFAULT_XBRL_UPWARD_TYPO_MIN_MCAP_USD)
+                    & (adv_v >= DEFAULT_XBRL_UPWARD_TYPO_MIN_ADV_USD)
+                    & (turn < DEFAULT_XBRL_UPWARD_TYPO_MAX_TURNOVER)
+                )
+                bad_down_turn = adv_ok & (turn > DEFAULT_XBRL_DOWNWARD_TYPO_MIN_TURNOVER)
+
+                bad = bad_mega | bad_up_turn | bad_down_turn
+                if np.any(bad):
+                    keep_mask[idxs[bad]] = False
+
+            # Pass 2: Strictly PIT chronological sequential QoQ share-jump guard
+            surv_mask = keep_mask[grp_idxs]
+            if int(surv_mask.sum()) <= 1:
                 continue
 
-            idxs = grp.index.to_numpy()[valid_pos]
-            pos_v = pos[valid_pos]
-            sh_v = grp["shares_outstanding"].to_numpy(dtype=np.float64)[valid_pos]
-            px_v = raw_close[pos_v]
-            adv_v = adv_arr[pos_v]
-            scales_v = np.fromiter(
-                (spy_scale_map[pd.Timestamp(d)] for d in grp["filed_date"].iloc[valid_pos]),
-                dtype=np.float64,
-                count=len(idxs),
-            )
+            surv = grp.loc[grp_idxs[surv_mask]]
+            if has_tag_prio:
+                surv = surv.sort_values(
+                    ["filed_date", "end_date", "tag_priority"],
+                    ascending=[True, True, False],
+                )
+            else:
+                surv = surv.sort_values(["filed_date", "end_date"], ascending=[True, True])
 
-            px_ok = np.isfinite(px_v) & (px_v > 0.0)
-            imp_mcap = np.where(px_ok, sh_v * px_v, np.nan)
-            adv_ok = px_ok & np.isfinite(adv_v) & (adv_v > 0.0) & (imp_mcap > 0.0)
-            turn = np.where(adv_ok, adv_v / imp_mcap, np.nan)
+            anchor_dt: pd.Timestamp | None = None
+            anchor_end_dt: pd.Timestamp | None = None
+            anchor_sh = 0.0
+            anchor_px = 0.0
 
-            bad_mega = px_ok & (imp_mcap > DEFAULT_XBRL_MAX_MCAP_ANCHOR_USD * scales_v)
-            bad_up_turn = (
-                adv_ok
-                & (imp_mcap > DEFAULT_XBRL_UPWARD_TYPO_MIN_MCAP_USD)
-                & (adv_v >= DEFAULT_XBRL_UPWARD_TYPO_MIN_ADV_USD)
-                & (turn < DEFAULT_XBRL_UPWARD_TYPO_MAX_TURNOVER)
-            )
-            bad_down_turn = adv_ok & (turn > DEFAULT_XBRL_DOWNWARD_TYPO_MIN_TURNOVER)
+            for cur_dt_raw, day_grp in surv.groupby("filed_date", sort=True):
+                cur_dt = pd.Timestamp(cur_dt_raw)
+                cur_ns = np.datetime64(cur_dt.normalize(), "ns")
+                cur_pos = int(np.searchsorted(dates_ns, cur_ns, side="right")) - 1
+                cur_px = float(raw_close[cur_pos]) if cur_pos >= 0 else np.nan
+                cur_px_ok = bool(np.isfinite(cur_px) and cur_px > 0.0)
 
-            bad = bad_mega | bad_up_turn | bad_down_turn
-            if np.any(bad):
-                keep_mask[idxs[bad]] = False
+                last_acc_sh: float | None = None
+                last_acc_end: pd.Timestamp | None = None
+
+                if anchor_dt is not None and cur_px_ok:
+                    k = self.get_forward_split_factor(str(tkr), anchor_dt, cur_dt)
+                    exp_sh = anchor_sh * k
+                    px_ratio = (cur_px * k) / anchor_px
+                    anchor_mcap = anchor_sh * anchor_px
+
+                    for r_idx, r_sh, r_end in zip(
+                        day_grp.index.to_numpy(),
+                        day_grp["shares_outstanding"].to_numpy(dtype=np.float64),
+                        day_grp["end_date"],
+                        strict=False,
+                    ):
+                        sh_ratio = (r_sh / exp_sh) if exp_sh > 0.0 else 1.0
+                        bad_down_qoq = (
+                            sh_ratio < DEFAULT_XBRL_MIN_QOQ_RATIO
+                            and px_ratio < DEFAULT_XBRL_REV_SPLIT_PX_RATIO
+                        )
+                        bad_up_qoq = (
+                            sh_ratio > DEFAULT_XBRL_MAX_QOQ_RATIO
+                            and px_ratio > DEFAULT_XBRL_FWD_SPLIT_PX_RATIO
+                            and anchor_mcap > DEFAULT_XBRL_UP_JUMP_MIN_MCAP_USD
+                        )
+                        if bad_down_qoq or bad_up_qoq:
+                            keep_mask[int(r_idx)] = False
+                        else:
+                            last_acc_sh = float(r_sh)
+                            last_acc_end = pd.Timestamp(r_end)
+                else:
+                    if cur_px_ok:
+                        last_acc_sh = float(day_grp["shares_outstanding"].iloc[-1])
+                        last_acc_end = pd.Timestamp(day_grp["end_date"].iloc[-1])
+
+                if (
+                    cur_px_ok
+                    and last_acc_sh is not None
+                    and last_acc_end is not None
+                    and (anchor_end_dt is None or last_acc_end >= anchor_end_dt)
+                ):
+                    anchor_dt = cur_dt
+                    anchor_end_dt = last_acc_end
+                    anchor_sh = last_acc_sh
+                    anchor_px = cur_px
 
         n_dropped = int((~keep_mask).sum())
         if n_dropped > 0:
             logger.info(
-                "Scrubbed %d SEC XBRL unit-scale outlier rows (%.4f%% of %d) strictly PIT.",
+                "Scrubbed %d SEC XBRL scale/QoQ outlier rows (%.4f%% of %d) strictly PIT.",
                 n_dropped,
                 100.0 * n_dropped / len(so_reset),
                 len(so_reset),
@@ -869,9 +982,12 @@ def attach_pit_market_data(
         else:
             pit_mcap_usd = np.nan
 
+        is_domestic_sec_filer = str(so_info["shares_form"]).strip().upper() in DOMESTIC_SEC_FORMS
         passes_mcap = bool(pd.notna(pit_mcap_usd) and pit_mcap_usd >= eff_mcap_floor)
         passes_adv = bool(pd.notna(adv_20d_usd) and adv_20d_usd >= eff_adv_floor)
-        is_investable = bool(has_price and is_seasoned and passes_mcap and passes_adv)
+        is_investable = bool(
+            has_price and is_seasoned and is_domestic_sec_filer and passes_mcap and passes_adv
+        )
 
         rec = dict(base)
         rec.update(
@@ -917,6 +1033,7 @@ def attach_pit_market_data(
                 "min_mcap_threshold_usd": eff_mcap_floor,
                 "min_adv_threshold_usd": eff_adv_floor,
                 "is_seasoned": is_seasoned,
+                "is_domestic_sec_filer": is_domestic_sec_filer,
                 "passes_mcap_gate": passes_mcap,
                 "passes_adv_gate": passes_adv,
                 "is_investable": is_investable,
@@ -1009,6 +1126,10 @@ def verify_stage2_pit_snapshot(df: pd.DataFrame, query_date: pd.Timestamp) -> No
             raise PitLookaheadError("Stage 2 integrity: is_investable row lacks market price.")
         if not inv["is_seasoned"].all():
             raise PitLookaheadError("Stage 2 integrity: is_investable row is not seasoned.")
+        if "is_domestic_sec_filer" in inv.columns and not inv["is_domestic_sec_filer"].all():
+            raise PitLookaheadError(
+                "Stage 2 integrity: non-domestic SEC filer (20-F/40-F) marked investable."
+            )
         if not inv["pit_mcap_usd"].notna().all():
             raise PitLookaheadError("Stage 2 integrity: is_investable row has NaN pit_mcap_usd.")
         if inv["has_unequal_class_ratio"].any():

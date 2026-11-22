@@ -103,6 +103,40 @@ def test_is_common_stock_excludes_reit_etf_adr_warrant() -> None:
     assert is_common_stock_candidate(warrant_explicit) is False
 
 
+def test_is_common_stock_excludes_otc_venues_and_foreign_fyq_tickers() -> None:
+    """OTC venues (UD/UO/PQ) and 5-letter FINRA OTC F/Y/Q suffixes are rejected."""
+    for venue in ("UD", "UO", "PQ"):
+        rec = {
+            "exchCode": venue,
+            "ticker": "ABCD",
+            "marketSector": "Equity",
+            "securityType": "Common Stock",
+            "securityType2": "Common Stock",
+        }
+        assert is_common_stock_candidate(rec) is False
+
+    for otc_ticker in ("BUDFF", "ASMLF", "NSRGY", "GPLDQ"):
+        rec = {
+            "exchCode": "US",
+            "ticker": otc_ticker,
+            "marketSector": "Equity",
+            "securityType": "Common Stock",
+            "securityType2": "Common Stock",
+        }
+        assert is_common_stock_candidate(rec) is False
+
+    # Normal 4-letter and 5-letter non-[FYQ] listed tickers (e.g., GOOGL, LBRDK) remain valid
+    for listed_ticker in ("AAPL", "GOOGL", "LBRDK", "BRK/B"):
+        rec = {
+            "exchCode": "US",
+            "ticker": listed_ticker,
+            "marketSector": "Equity",
+            "securityType": "Common Stock",
+            "securityType2": "Common Stock",
+        }
+        assert is_common_stock_candidate(rec) is True
+
+
 def test_build_cusip_map_caches_incrementally_and_applies_overrides(tmp_path: Path) -> None:
     holdings = pd.DataFrame(
         [

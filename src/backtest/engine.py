@@ -18,8 +18,12 @@ Core Design & PIT Discipline:
     where `prev_day_ret` is the split- and dividend-adjusted total return from `t-1` to `t`.
   - **Three Rebalancing Horizons Supported:**
       1. `daily`: Rebalances to exact `N_target` every trading day.
-      2. `buffered`: Holds `N_drifted` unless a stock enters/exits the target book or
-         `|N_target - N_drifted| > (buffer_bps_of_gmv / 1e4) * target_gmv_t`.
+      2. `buffered`: Per-position relative trade-to-boundary no-trade zone
+         (`clip(N_drifted, N_target - band_i, N_target + band_i)` where
+         `band_i = position_buffer_pct * |N_target|`), trading cleanly on entries,
+         exits, and sign flips, plus a portfolio-level dollar-neutrality guard
+         (`max_net_exposure_pct`) that proportionally re-centers long/short legs
+         to midpoint GMV whenever a dollar-neutral target book drifts beyond ±2% net.
       3. `quarterly`: Rebalances strictly on the first trading day `>= quarterly_offset_days`
          (default `46` calendar days) after each calendar quarter-end (plus day 0 inception),
          holding drifted positions in between (exiting only if a stock drops off the price tape).
@@ -82,7 +86,8 @@ class BacktestConfig:
     spy_hedge_cost_bps: float = 1.0  # 1 bp one-way on net SPY beta-hedge notional delta
     borrow_bps_pa: float = 0.0  # Annualized short-borrow fee on short GMV (0 in ex-borrow base)
     rebalance_mode: RebalanceMode = "buffered"
-    buffer_bps_of_gmv: float = 25.0  # No-trade zone (bps of target GMV) for buffered mode
+    position_buffer_pct: float = 0.20  # ±20% per-position trade-to-boundary no-trade zone
+    max_net_exposure_pct: float | None = 0.02  # Hard ±2% GMV net-dollar guard for L/S books
     quarterly_offset_days: int = 46  # Calendar days after quarter-end for fixed quarterly rebal
     capital_base_usd: float | None = None  # Fixed allocated capital base (e.g. 1x full-scale GMV)
     name: str = ""
@@ -281,11 +286,12 @@ def run_rack_backtest(
 
     daily_rows: list[dict[str, Any]] = []
     n_adv_capped_days = 0
+    n_net_recenter_days = 0
 
     one_way_rate = config.one_way_cost_bps / 1e4
     spy_rate = config.spy_hedge_cost_bps / 1e4
     borrow_daily_rate = (config.borrow_bps_pa / 1e4) / TRADING_DAYS_PER_YEAR
-    buf_frac = config.buffer_bps_of_gmv / 1e4
+    pos_buf = max(0.0, float(config.position_buffer_pct))
 
     for t in range(t_len):
         # 1. Drift yesterday's held positions forward to today's close via corporate-action-clean
@@ -322,14 +328,14 @@ def run_rack_backtest(
         if config.rebalance_mode == "daily":
             new_held = target.copy()
         elif config.rebalance_mode == "buffered":
-            target_gmv = float(np.abs(target).sum())
-            band = buf_frac * target_gmv
+            # Scale-invariant per-position trade-to-boundary no-trade zone (±pos_buf * |target_i|)
+            band_i = pos_buf * np.abs(target)
             enter_or_exit = ((drifted == 0.0) & (target != 0.0)) | (
                 (target == 0.0) & (drifted != 0.0)
             )
-            breach_band = np.abs(target - drifted) > band
-            do_trade = enter_or_exit | breach_band | (~tradable)
-            new_held = np.where(do_trade, target, drifted)
+            sign_flip = (drifted * target) < 0.0
+            clipped = np.clip(drifted, target - band_i, target + band_i)
+            new_held = np.where(enter_or_exit | sign_flip | (~tradable), target, clipped)
         elif config.rebalance_mode == "quarterly":
             if q_rebal_mask[t]:
                 new_held = target.copy()
@@ -341,6 +347,30 @@ def run_rack_backtest(
 
         # Zero out tiny floating-point dust (< $1)
         new_held = np.where(np.abs(new_held) < 1.0, 0.0, new_held)
+
+        # Portfolio-level dollar-neutrality guard for buffered dollar-neutral target racks:
+        # prevents correlated drift inside per-stock bands from accumulating net long/short bias.
+        if config.rebalance_mode == "buffered" and config.max_net_exposure_pct is not None:
+            t_long = float(np.maximum(target, 0.0).sum())
+            t_short = float(np.abs(np.minimum(target, 0.0)).sum())
+            t_gmv = t_long + t_short
+            if t_long > 0.0 and t_short > 0.0 and abs(t_long - t_short) / t_gmv < 0.01:
+                l_now = float(np.maximum(new_held, 0.0).sum())
+                s_now = float(np.abs(np.minimum(new_held, 0.0)).sum())
+                g_now = l_now + s_now
+                if (
+                    g_now > 0.0
+                    and l_now > 0.0
+                    and s_now > 0.0
+                    and abs(l_now - s_now) / g_now > config.max_net_exposure_pct
+                ):
+                    mid = 0.5 * (l_now + s_now)
+                    new_held = np.where(
+                        new_held > 0.0,
+                        new_held * (mid / l_now),
+                        new_held * (mid / s_now),
+                    )
+                    n_net_recenter_days += 1
 
         # 4. Exact two-way traded notional, SPY beta-hedge notional, and costs
         traded_notional = float(np.abs(new_held - drifted).sum())
@@ -398,7 +428,12 @@ def run_rack_backtest(
     daily_df["cum_pnl"] = daily_df["pnl"].cumsum()
     daily_df["dd_usd"] = daily_df["cum_pnl"] - daily_df["cum_pnl"].cummax()
 
-    stats = summarize_backtest(daily_df, config, n_adv_capped_days=n_adv_capped_days)
+    stats = summarize_backtest(
+        daily_df,
+        config,
+        n_adv_capped_days=n_adv_capped_days,
+        n_net_recenter_days=n_net_recenter_days,
+    )
     return {"daily": daily_df, "stats": stats, "config": config}
 
 
@@ -407,6 +442,7 @@ def summarize_backtest(
     config: BacktestConfig,
     *,
     n_adv_capped_days: int = 0,
+    n_net_recenter_days: int = 0,
 ) -> dict[str, Any]:
     """Compute exact dollar and percentage performance metrics from daily backtest output."""
     n_days = int(len(daily_df))
@@ -457,6 +493,17 @@ def summarize_backtest(
         float((ann_pnl_ex_borrow / avg_short_gmv) * 1e4) if avg_short_gmv > 0.0 else np.nan
     )
 
+    net_pct_active = (
+        (daily_df.loc[active_mask, "long_gmv"] - daily_df.loc[active_mask, "short_gmv"])
+        / daily_df.loc[active_mask, "gmv"]
+        if active_mask.any()
+        else pd.Series(dtype=np.float64)
+    )
+    avg_net_exposure_pct = float(net_pct_active.mean()) if not net_pct_active.empty else 0.0
+    max_abs_net_exposure_pct = (
+        float(net_pct_active.abs().max()) if not net_pct_active.empty else 0.0
+    )
+
     return {
         "name": config.name or config.rebalance_mode,
         "rebalance_mode": config.rebalance_mode,
@@ -469,6 +516,9 @@ def summarize_backtest(
         "avg_active_gmv": avg_active_gmv,
         "capital_base_usd": cap_base,
         "pct_days_adv_capped": float(n_adv_capped_days / n_days) if n_days else 0.0,
+        "avg_net_exposure_pct": avg_net_exposure_pct,
+        "max_abs_net_exposure_pct": max_abs_net_exposure_pct,
+        "n_net_recenter_days": int(n_net_recenter_days),
         "daily_hit_rate_raw": hit_raw,
         "daily_hit_rate": hit_net,
         "cum_pnl_raw": float(daily_df["cum_pnl_raw"].iloc[-1]),
@@ -501,7 +551,8 @@ def run_crowding_horizon_comparison(
     max_adv_pct: float = 0.05,
     one_way_cost_bps: float = 5.0,
     spy_hedge_cost_bps: float = 1.0,
-    buffer_bps_of_gmv: float = 25.0,
+    position_buffer_pct: float = 0.20,
+    max_net_exposure_pct: float | None = 0.02,
     quarterly_offset_days: int = 46,
     output_dir: Path | None = DEFAULT_BACKTEST_OUTPUT_DIR,
 ) -> dict[str, Any]:
@@ -513,7 +564,7 @@ def run_crowding_horizon_comparison(
 
     modes: list[tuple[RebalanceMode, str]] = [
         ("daily", "Daily Rebalance"),
-        ("buffered", f"Buffered Event-Driven ({buffer_bps_of_gmv:.0f} bps band)"),
+        ("buffered", f"Buffered Event-Driven ({position_buffer_pct * 100:.0f}% pos band)"),
         ("quarterly", f"Fixed Quarterly (Day +{quarterly_offset_days})"),
     ]
 
@@ -527,7 +578,8 @@ def run_crowding_horizon_comparison(
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=0.0,
             rebalance_mode=mode,
-            buffer_bps_of_gmv=buffer_bps_of_gmv,
+            position_buffer_pct=position_buffer_pct,
+            max_net_exposure_pct=max_net_exposure_pct,
             quarterly_offset_days=quarterly_offset_days,
             name=label,
         )
@@ -546,7 +598,8 @@ def run_crowding_horizon_comparison(
                 spy_hedge_cost_bps=0.0 if c_bps == 0.0 else spy_hedge_cost_bps,
                 borrow_bps_pa=0.0,
                 rebalance_mode=mode,
-                buffer_bps_of_gmv=buffer_bps_of_gmv,
+                position_buffer_pct=position_buffer_pct,
+                max_net_exposure_pct=max_net_exposure_pct,
                 quarterly_offset_days=quarterly_offset_days,
                 name=f"{mode}_{int(c_bps)}bps",
             )
@@ -561,7 +614,8 @@ def run_crowding_horizon_comparison(
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=b_pa,
             rebalance_mode="buffered",
-            buffer_bps_of_gmv=buffer_bps_of_gmv,
+            position_buffer_pct=position_buffer_pct,
+            max_net_exposure_pct=max_net_exposure_pct,
             quarterly_offset_days=quarterly_offset_days,
             name=f"buffered_borrow_{int(b_pa)}bps",
         )
@@ -781,7 +835,8 @@ def run_d10_vs_rest_regime_study(
     max_adv_pct: float = 0.05,
     one_way_cost_bps: float = 5.0,
     spy_hedge_cost_bps: float = 1.0,
-    buffer_bps_of_gmv: float = 25.0,
+    position_buffer_pct: float = 0.20,
+    max_net_exposure_pct: float | None = 0.02,
     beta_ols_bps: float | None = None,
     output_dir: Path | None = DEFAULT_BACKTEST_OUTPUT_DIR,
 ) -> dict[str, Any]:
@@ -806,7 +861,8 @@ def run_d10_vs_rest_regime_study(
         spy_hedge_cost_bps=spy_hedge_cost_bps,
         borrow_bps_pa=0.0,
         rebalance_mode="buffered",
-        buffer_bps_of_gmv=buffer_bps_of_gmv,
+        position_buffer_pct=position_buffer_pct,
+        max_net_exposure_pct=max_net_exposure_pct,
         name="1. Unconditional (Always On)",
     )
     res_uncond = run_rack_backtest(base_racks, cfg_uncond)
@@ -844,7 +900,8 @@ def run_d10_vs_rest_regime_study(
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=0.0,
             rebalance_mode="buffered",
-            buffer_bps_of_gmv=buffer_bps_of_gmv,
+            position_buffer_pct=position_buffer_pct,
+            max_net_exposure_pct=max_net_exposure_pct,
             capital_base_usd=full_scale_cap,
             name=label,
         )
@@ -877,15 +934,17 @@ def run_frozen_oos_evaluation(
     max_adv_pct: float = 0.05,
     one_way_cost_bps: float = 5.0,
     spy_hedge_cost_bps: float = 1.0,
-    buffer_bps_of_gmv: float = 25.0,
+    position_buffer_pct: float = 0.20,
+    max_net_exposure_pct: float | None = 0.02,
     frozen_slope_bps: float = FROZEN_IS_CROWDING_BETA_BPS,
     output_dir: Path | None = DEFAULT_BACKTEST_OUTPUT_DIR,
 ) -> dict[str, Any]:
     """Run single honest Out-of-Sample (`2024+`) evaluation of both frozen IS strategies.
 
     Uses strictly frozen In-Sample parameters (`frozen_slope_bps = -0.534773 bps/d`,
-    Buffered 25 bps band, 5 bps one-way = 10 bps RT, $50k/bps, 5% ADV cap) with ZERO
-    re-estimation on OOS data. Evaluates:
+    Buffered ±20% per-position trade-to-boundary band + ±2% net-exposure guard,
+    5 bps one-way = 10 bps RT, $50k/bps, 5% ADV cap) with ZERO re-estimation on OOS data.
+    Evaluates:
       1. Primary:   Unconditional Buffered Dollar- & Beta-Neutral `Short D10 / Long D1-D9`
       2. Secondary: Buffered `Short > D7` Crowding vs. `SPY`
     across Train (`in_sample`), Test (`oos`), and Full (`full`) spans, plus OOS factor OLS
@@ -935,7 +994,8 @@ def run_frozen_oos_evaluation(
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=0.0,
             rebalance_mode="buffered",
-            buffer_bps_of_gmv=buffer_bps_of_gmv,
+            position_buffer_pct=position_buffer_pct,
+            max_net_exposure_pct=max_net_exposure_pct,
             name="Short D10 / Long D1-D9 (Dollar-Neutral)",
         )
         res_d10 = run_rack_backtest(r_d10, cfg_d10)
@@ -956,7 +1016,8 @@ def run_frozen_oos_evaluation(
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=0.0,
             rebalance_mode="buffered",
-            buffer_bps_of_gmv=buffer_bps_of_gmv,
+            position_buffer_pct=position_buffer_pct,
+            max_net_exposure_pct=max_net_exposure_pct,
             name="Short >D7 Crowding vs. SPY",
         )
         res_gt7 = run_rack_backtest(r_gt7, cfg_gt7)
@@ -977,7 +1038,8 @@ def run_frozen_oos_evaluation(
                         spy_hedge_cost_bps=spy_hedge_cost_bps,
                         borrow_bps_pa=b_pa,
                         rebalance_mode="buffered",
-                        buffer_bps_of_gmv=buffer_bps_of_gmv,
+                        position_buffer_pct=position_buffer_pct,
+                        max_net_exposure_pct=max_net_exposure_pct,
                         name=s_name,
                     )
                     b_st = run_rack_backtest(s_racks, cfg_b)["stats"]
@@ -1083,7 +1145,7 @@ def main() -> int:
         print(
             f"\n=== D10 vs REST DOLLAR- & BETA-NEUTRAL REGIME BACKTEST "
             f"({args.sample.upper()} | Full-Scale Cap: ${out['full_scale_capital_usd']:,.0f} | "
-            f"{args.cost_bps:.0f}bps one-way | Buffered 25bps) ==="
+            f"{args.cost_bps:.0f}bps one-way | Buffered ±20% pos / ±2% net) ==="
         )
         cols = [
             "name",

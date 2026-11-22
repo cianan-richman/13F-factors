@@ -47,6 +47,7 @@ from src.pit.panel import (
     DEFAULT_MIN_SEASONING_DAYS,
     DEFAULT_THRESHOLD_ANCHOR_DATE,
     DEFAULT_UNEQUAL_CLASS_PRICE_RATIO,
+    DOMESTIC_SEC_FORMS,
     PitMarketStore,
     map_holdings_to_securities,
 )
@@ -815,6 +816,9 @@ def build_daily_pit_panel(
     panel["is_seasoned"] = panel["has_market_price"] & (
         panel["trading_days_history"] >= min_seasoning_days
     )
+    panel["is_domestic_sec_filer"] = (
+        panel["shares_form"].fillna("").astype(str).str.strip().str.upper().isin(DOMESTIC_SEC_FORMS)
+    )
     panel["passes_mcap_gate"] = panel["pit_mcap_usd"].notna() & (
         panel["pit_mcap_usd"] >= panel["min_mcap_threshold_usd"]
     )
@@ -824,6 +828,7 @@ def build_daily_pit_panel(
     panel["is_investable"] = (
         panel["has_market_price"]
         & panel["is_seasoned"]
+        & panel["is_domestic_sec_filer"]
         & panel["passes_mcap_gate"]
         & panel["passes_adv_gate"]
     )
@@ -978,7 +983,13 @@ def verify_panel_parity_against_snapshot(
         "pct_shares_owned",
         "days_to_liquidate",
     ]
-    bool_cols = ["is_investable", "is_primary_class", "is_panel_eligible", "is_pct_owned_invalid"]
+    bool_cols = [
+        "is_domestic_sec_filer",
+        "is_investable",
+        "is_primary_class",
+        "is_panel_eligible",
+        "is_pct_owned_invalid",
+    ]
     results: list[dict[str, Any]] = []
 
     for d_str in check_dates:

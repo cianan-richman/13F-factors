@@ -784,3 +784,274 @@ def test_pit_xbrl_unit_scale_outlier_scrubbing_has_zero_lookahead() -> None:
         mid_q2["shares_out_pit"],
     )
 
+
+def test_foreign_20f_40f_filers_excluded_from_investable_universe() -> None:
+    """20-F and 40-F foreign private issuers fail `is_domestic_sec_filer` and `is_investable`."""
+    cal = _make_trading_cal("2022-01-03", periods=280)
+    q_dt = cal[265]
+    mp = pd.concat(
+        [
+            _build_synthetic_market_prices("USCO", cal, base_raw_close=100.0),
+            _build_synthetic_market_prices("FORN", cal, base_raw_close=100.0),
+            _build_synthetic_market_prices("CANC", cal, base_raw_close=100.0),
+        ],
+        ignore_index=True,
+    )
+    spy = _build_synthetic_market_prices("SPY", cal, base_raw_close=400.0)
+    so = pd.DataFrame(
+        [
+            {
+                "yahoo_ticker": "USCO",
+                "issuer_cik": "0001000001",
+                "filed_date": cal[250],
+                "end_date": cal[245],
+                "shares_outstanding": 100_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "FORN",
+                "issuer_cik": "0001000002",
+                "filed_date": cal[250],
+                "end_date": cal[245],
+                "shares_outstanding": 100_000_000.0,
+                "form": "20-F",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "CANC",
+                "issuer_cik": "0001000003",
+                "filed_date": cal[250],
+                "end_date": cal[245],
+                "shares_outstanding": 100_000_000.0,
+                "form": "40-F",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+        ]
+    )
+    cm = pd.DataFrame(
+        [
+            {
+                "cusip": "100000101",
+                "security_id": "BBG_USCO",
+                "yahoo_ticker": "USCO",
+                "figi_name": "US CO",
+                "is_us_common_stock": True,
+            },
+            {
+                "cusip": "100000102",
+                "security_id": "BBG_FORN",
+                "yahoo_ticker": "FORN",
+                "figi_name": "FOREIGN CO",
+                "is_us_common_stock": True,
+            },
+            {
+                "cusip": "100000103",
+                "security_id": "BBG_CANC",
+                "yahoo_ticker": "CANC",
+                "figi_name": "CANADIAN CO",
+                "is_us_common_stock": True,
+            },
+        ]
+    )
+    ledger = _make_ledger(
+        filings=[
+            {
+                "accession_number": "F1",
+                "filer_id": "fund_a",
+                "canonical_name": "Fund A",
+                "style": "quality",
+                "form_type": "13F-HR",
+                "amendment_type": "",
+                "period_of_report": cal[240],
+                "date_filed": cal[255],
+                "acceptance_date": cal[255],
+                "acceptance_datetime": "20230101160000",
+                "parse_status": "ok",
+            }
+        ],
+        holdings=[
+            {
+                "accession_number": "F1",
+                "cusip": c,
+                "name_of_issuer": name,
+                "title_of_class": "COM",
+                "ssh_prnamt": 1_000_000.0,
+                "ssh_prnamt_type": "SH",
+                "put_call": "",
+                "value_usd": 100_000_000.0,
+            }
+            for c, name in [
+                ("100000101", "US CO"),
+                ("100000102", "FOREIGN CO"),
+                ("100000103", "CANADIAN CO"),
+            ]
+        ],
+        cal=cal,
+    )
+    store = PitMarketStore(mp, spy, so, cm)
+    snap = build_pit_security_snapshot(q_dt, ledger, store, verify=True).set_index("yahoo_ticker")
+
+    assert bool(snap.loc["USCO", "is_domestic_sec_filer"]) is True
+    assert bool(snap.loc["USCO", "is_investable"]) is True
+    for foreign_tkr in ("FORN", "CANC"):
+        assert bool(snap.loc[foreign_tkr, "is_domestic_sec_filer"]) is False
+        assert bool(snap.loc[foreign_tkr, "is_investable"]) is False
+
+
+def test_pit_xbrl_sequential_qoq_jump_scrubber_catches_zts_and_preserves_splits() -> None:
+    """Sequential QoQ XBRL scrubber catches ZTS-style 20x drop & 100x spike while keeping splits."""
+    cal = _make_trading_cal("2020-01-02", periods=160)
+    spy = _build_synthetic_market_prices("SPY", cal, base_raw_close=300.0)
+
+    # ZTS-like stock: flat $120 price, 478M shares -> sudden 24.3M typo (~20x drop) -> 476M recovery
+    mp_zts = _build_synthetic_market_prices("ZTSX", cal, base_raw_close=120.0)
+    # CIGI-like stock: flat $100 price, 35M shares ($3.5B) -> sudden 3.5B upward typo (100x jump)
+    mp_up = _build_synthetic_market_prices("UPTX", cal, base_raw_close=100.0)
+    # Genuine 10:1 forward split on cal[60] -> 10x share increase MUST be preserved!
+    mp_spl = _build_synthetic_market_prices(
+        "SPLT", cal, base_raw_close=1000.0, split_date=cal[60], split_factor=10.0
+    )
+    # Genuine 1:10 reverse split on cal[60] -> 0.1x share decrease MUST be preserved!
+    mp_rev = _build_synthetic_market_prices(
+        "REVS", cal, base_raw_close=5.0, split_date=cal[60], split_factor=0.1
+    )
+    mp = pd.concat([mp_zts, mp_up, mp_spl, mp_rev], ignore_index=True)
+
+    so = pd.DataFrame(
+        [
+            # ZTSX: clean Q1 -> 20x downward typo in Q2 (adv/mcap = 60M / 2.9B = 2%, misses Pass 1!)
+            {
+                "yahoo_ticker": "ZTSX",
+                "issuer_cik": "0001",
+                "filed_date": cal[20],
+                "end_date": cal[15],
+                "shares_outstanding": 478_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "ZTSX",
+                "issuer_cik": "0001",
+                "filed_date": cal[50],
+                "end_date": cal[45],
+                "shares_outstanding": 24_300_000.0,  # 20x typo without reverse split!
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "ZTSX",
+                "issuer_cik": "0001",
+                "filed_date": cal[90],
+                "end_date": cal[85],
+                "shares_outstanding": 476_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            # UPTX: clean Q1 ($3.5B) -> 100x upward typo in Q2 ($350B, turn=0.014% misses Pass 1)
+            {
+                "yahoo_ticker": "UPTX",
+                "issuer_cik": "0002",
+                "filed_date": cal[20],
+                "end_date": cal[15],
+                "shares_outstanding": 35_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "UPTX",
+                "issuer_cik": "0002",
+                "filed_date": cal[50],
+                "end_date": cal[45],
+                "shares_outstanding": 3_500_000_000.0,  # 100x jump on $3.5B issuer!
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            # SPLT: 100M pre-split -> 1B post-split after genuine 10:1 split on cal[60]
+            {
+                "yahoo_ticker": "SPLT",
+                "issuer_cik": "0003",
+                "filed_date": cal[20],
+                "end_date": cal[15],
+                "shares_outstanding": 100_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "SPLT",
+                "issuer_cik": "0003",
+                "filed_date": cal[80],
+                "end_date": cal[75],
+                "shares_outstanding": 1_000_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            # REVS: 100M pre-reverse-split -> 10M post-reverse-split after 1:10 on cal[60]
+            {
+                "yahoo_ticker": "REVS",
+                "issuer_cik": "0004",
+                "filed_date": cal[20],
+                "end_date": cal[15],
+                "shares_outstanding": 100_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+            {
+                "yahoo_ticker": "REVS",
+                "issuer_cik": "0004",
+                "filed_date": cal[80],
+                "end_date": cal[75],
+                "shares_outstanding": 10_000_000.0,
+                "form": "10-Q",
+                "tag_source": "dei:EntityCommonStockSharesOutstanding",
+                "tag_priority": 1,
+            },
+        ]
+    )
+    cm = pd.DataFrame(
+        columns=["cusip", "security_id", "yahoo_ticker", "figi_name", "is_us_common_stock"]
+    )
+    store = PitMarketStore(mp, spy, so, cm)
+
+    # ZTSX Q2 20x drop scrubbed -> carries forward 478M on cal[60], updates to 476M on cal[100]
+    assert np.isclose(
+        store.get_pit_shares_outstanding("ZTSX", cal[60])["shares_out_pit"], 478_000_000.0
+    )
+    assert np.isclose(
+        store.get_pit_shares_outstanding("ZTSX", cal[100])["shares_out_pit"], 476_000_000.0
+    )
+
+    # UPTX Q2 100x jump scrubbed -> carries forward 35M
+    assert np.isclose(
+        store.get_pit_shares_outstanding("UPTX", cal[60])["shares_out_pit"], 35_000_000.0
+    )
+
+    # Genuine forward & reverse splits preserved cleanly
+    assert np.isclose(
+        store.get_pit_shares_outstanding("SPLT", cal[90])["shares_out_pit"], 1_000_000_000.0
+    )
+    assert np.isclose(
+        store.get_pit_shares_outstanding("REVS", cal[90])["shares_out_pit"], 10_000_000.0
+    )
+
+    # Zero lookahead: corrupting ZTSX Q3 on cal[90] must not alter cal[60] output
+    so_fut = so.copy()
+    so_fut.loc[so_fut["filed_date"] == cal[90], "shares_outstanding"] = 999_000_000_000.0
+    store_fut = PitMarketStore(mp, spy, so_fut, cm)
+    assert np.isclose(
+        store_fut.get_pit_shares_outstanding("ZTSX", cal[60])["shares_out_pit"],
+        478_000_000.0,
+    )
+
+
