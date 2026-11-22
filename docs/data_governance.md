@@ -90,3 +90,12 @@ If `--strict` exits non-zero:
 ## 5. Downstream Security-Level Overrides (`config/cusip_overrides.yaml`)
 
 Analogous to `config/filers.yaml` for institutional entities, [config/cusip_overrides.yaml](../config/cusip_overrides.yaml) stores manual `CUSIP → (ticker, share_class_figi)` overrides for corporate restructurings or legacy CUSIPs not cleanly resolved by OpenFIGI `v3/mapping`.
+
+---
+
+## 6. Confidential Treatment Requests (`is_confidential_omitted` & `has_ctr_reveal`)
+
+Under SEC Form 13F rules, institutional managers may request temporary confidential omission of active accumulation stakes (`<isConfidentialOmitted>true</isConfidentialOmitted>` on the base `13F-HR` cover page — observed on `72` filings across `12` tracked managers in `2015–2026`), later disclosing them via `13F-HR/A (NEW HOLDINGS)` once confidentiality expires:
+
+1. **PIT Ledger & Incomplete Base-Filing Weights (`is_confidential_omitted`):** `PitHoldingsLedger` propagates `is_confidential_omitted` onto each versioned state (`pit_13f_states.parquet`) and daily panel (`has_confidential_omitted_filer`). When `True`, the manager's publicly disclosed `total_reported_value_usd` omits the confidential stake, so `portfolio_weight_reported` and constant-price active portfolio weights for that filer are computed over an incomplete equity denominator (slightly overstating disclosed weights until the confidential filing expires). Primary crowding signals (`pct_shares_owned`, `days_to_liquidate`) normalize by shares outstanding / ADV rather than manager book value and are unaffected by denominator omission; `concentration.py` additionally audits `active_w_shift_sn` excluding `has_confidential_omitted_filer` rows.
+2. **Delayed CTR-Reveal Spikes (`has_ctr_reveal`):** When a `13F-HR/A (NEW HOLDINGS)` filing arrives (often 2–4 quarters late), `PitHoldingsLedger` upserts the revealed CUSIP strictly from `T+1` onward without back-propagation and tags `is_ctr_reveal = True` (`has_ctr_reveal = True` on `1,766` eligible stock-days across `34` tickers). Because delayed disclosure creates artificial initiation/buying spikes in raw QoQ share deltas (`delta_pct_own`), `src/factors/concentration.py` masks `has_ctr_reveal == True` stock-days to `NaN` in flow shift signals (`delta_pct_own_sn`, `active_w_shift_sn`, `delta_hhi_sn`, `net_buyer_ratio_sn`) by default (`exclude_ctr_reveals=True`), while retaining `delta_pct_own_raw`, `is_ctr_excluded`, and an automated with-vs-without CTR ablation audit (`outputs/factors/concentration_ctr_audit_is.csv`).

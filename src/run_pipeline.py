@@ -22,7 +22,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 
 from src.backtest.engine import (
-    FROZEN_IS_CROWDING_BETA_BPS,
     run_crowding_horizon_comparison,
     run_d10_vs_rest_regime_study,
     run_frozen_oos_evaluation,
@@ -87,10 +86,20 @@ def run_ingest_stage(config: AppConfig, *, smoke: bool = False) -> None:
         backoff_base_sec=float(edgar_cfg.get("backoff_base_sec", 1.0)),
         pool_maxsize=max(workers + 2, 10),
     ) as edgar:
+        end_date_cfg = config.settings["window"].get("end_date")
+        end_year: int | None = None
+        end_qtr: int | None = None
+        if end_date_cfg:
+            end_ts = pd.Timestamp(end_date_cfg)
+            end_year = int(end_ts.year)
+            end_qtr = int((end_ts.month - 1) // 3 + 1)
+
         index_df = build_master_index(
             edgar,
             start_year=2024 if smoke else 2015,
             start_qtr=1,
+            end_year=end_year,
+            end_qtr=end_qtr,
             form_types=edgar_cfg.get("form_types", ["13F-HR", "13F-HR/A"]),
             max_workers=workers,
         )
@@ -258,14 +267,19 @@ def run_backtest_stage(config: AppConfig) -> None:
     max_net = exec_cfg.get("max_net_exposure_pct", 0.02)
     max_net_pct = float(max_net) if max_net is not None else None
     q_offset = int(exec_cfg.get("fixed_rebalance_offset_days", 46))
-    one_way_bps = float(costs_cfg.get("large_cap_one_way_bps", 5.0))
+    large_cap_bps = float(costs_cfg.get("large_cap_one_way_bps", 5.0))
+    mid_cap_bps_raw = costs_cfg.get("mid_cap_one_way_bps", 12.0)
+    mid_cap_bps = float(mid_cap_bps_raw) if mid_cap_bps_raw is not None else None
+    large_cap_thresh = float(costs_cfg.get("large_cap_threshold_usd", 10_000_000_000.0))
 
     hz = run_crowding_horizon_comparison(
         sample="in_sample",
         strategy_mode="short_gt_d7",
         notional_per_bps=50_000.0,
         max_adv_pct=0.05,
-        one_way_cost_bps=one_way_bps,
+        one_way_cost_bps=large_cap_bps,
+        mid_cap_one_way_bps=mid_cap_bps,
+        large_cap_threshold_usd=large_cap_thresh,
         position_buffer_pct=pos_buf,
         max_net_exposure_pct=max_net_pct,
         quarterly_offset_days=q_offset,
@@ -274,23 +288,28 @@ def run_backtest_stage(config: AppConfig) -> None:
         sample="in_sample",
         notional_per_bps=50_000.0,
         max_adv_pct=0.05,
-        one_way_cost_bps=one_way_bps,
+        one_way_cost_bps=large_cap_bps,
+        mid_cap_one_way_bps=mid_cap_bps,
+        large_cap_threshold_usd=large_cap_thresh,
         position_buffer_pct=pos_buf,
         max_net_exposure_pct=max_net_pct,
     )
     oos = run_frozen_oos_evaluation(
         notional_per_bps=50_000.0,
         max_adv_pct=0.05,
-        one_way_cost_bps=one_way_bps,
+        one_way_cost_bps=large_cap_bps,
+        mid_cap_one_way_bps=mid_cap_bps,
+        large_cap_threshold_usd=large_cap_thresh,
         position_buffer_pct=pos_buf,
         max_net_exposure_pct=max_net_pct,
-        frozen_slope_bps=FROZEN_IS_CROWDING_BETA_BPS,
+        frozen_slope_bps=None,
     )
 
     cols = [
         "name",
         "split",
         "n_trading_days",
+        "effective_one_way_cost_bps",
         "cum_pnl_raw",
         "cum_pnl",
         "ann_return",
@@ -301,19 +320,34 @@ def run_backtest_stage(config: AppConfig) -> None:
         "ann_turnover_x",
         "realized_spy_beta",
     ]
-    print("\n=== [backtest] TRAIN HORIZON COMPARISON (SHORT >D7, 5 bps ONE-WAY) ===")
-    print(
-        hz["summary"][["name", "cum_pnl", "ann_return", "sharpe", "ann_turnover_x"]].to_string(
-            index=False
-        )
+    cost_desc = (
+        f"TIERED {large_cap_bps:.0f}/{mid_cap_bps:.0f} bps ONE-WAY"
+        if mid_cap_bps is not None
+        else f"{large_cap_bps:.0f} bps ONE-WAY"
     )
-    print("\n=== [backtest] TRAIN DOLLAR-NEUTRAL D10 vs REST (4 ITERATIONS) ===")
+    print(f"\n=== [backtest] TRAIN HORIZON COMPARISON (SHORT >D7, {cost_desc}) ===")
+    print(
+        hz["summary"][
+            [
+                "name",
+                "effective_one_way_cost_bps",
+                "cum_pnl",
+                "ann_return",
+                "sharpe",
+                "ann_turnover_x",
+            ]
+        ].to_string(index=False)
+    )
+    print(f"\n=== [backtest] TRAIN DOLLAR-NEUTRAL D10 vs REST (4 ITERATIONS, {cost_desc}) ===")
     print(
         d10_is["summary"][
             ["name", "pct_active_days", "cum_pnl_raw", "cum_pnl", "sharpe_raw", "sharpe"]
         ].to_string(index=False)
     )
-    print("\n=== [backtest] FROZEN TRAIN (IS) vs. TEST (OOS 2024+) vs. FULL ===")
+    print(
+        f"\n=== [backtest] FROZEN TRAIN (IS) vs. TEST (OOS 2024+) vs. FULL "
+        f"(IS slope={oos['frozen_slope_bps']:+.4f} bps/d, {cost_desc}) ==="
+    )
     print(oos["summary"][cols].to_string(index=False))
 
 

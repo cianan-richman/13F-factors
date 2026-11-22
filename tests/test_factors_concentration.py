@@ -328,3 +328,136 @@ def test_concentration_exposures_standardized_and_size_neutral() -> None:
             assert np.isclose(np.mean(v), 0.0, atol=1e-12)
             assert np.isclose(np.std(v, ddof=0), 1.0, atol=1e-12)
             assert np.isclose(np.corrcoef(v, lm)[0, 1], 0.0, atol=1e-11)
+
+
+def test_ctr_reveal_masking_and_confidential_omitted_propagation() -> None:
+    """Verify `is_confidential_omitted` propagates to Stage 3 and CTR spikes are masked."""
+    cal = pd.bdate_range("2022-01-03", periods=310)
+    store, s3 = _make_simple_market_and_xbrl(cal)
+
+    meta = pd.DataFrame(
+        [
+            {
+                "accession_number": "Q1_BASE",
+                "filer_id": "fund_a",
+                "canonical_name": "Fund A",
+                "style": "value",
+                "form_type": "13F-HR",
+                "amendment_type": "",
+                "is_confidential_omitted": True,
+                "period_of_report": cal[210],
+                "date_filed": cal[220],
+                "acceptance_date": cal[220],
+                "acceptance_datetime": "20221107160000",
+                "parse_status": "ok",
+            },
+            {
+                "accession_number": "Q1_CTR",
+                "filer_id": "fund_a",
+                "canonical_name": "Fund A",
+                "style": "value",
+                "form_type": "13F-HR/A",
+                "amendment_type": "NEW HOLDINGS",
+                "is_confidential_omitted": False,
+                "period_of_report": cal[210],
+                "date_filed": cal[270],
+                "acceptance_date": cal[270],
+                "acceptance_datetime": "20230117160000",
+                "parse_status": "ok",
+            },
+        ]
+    )
+    holdings = pd.DataFrame(
+        [
+            {
+                "accession_number": "Q1_BASE",
+                "cusip": "111111101",
+                "name_of_issuer": "AAA",
+                "title_of_class": "COM",
+                "ssh_prnamt": 100_000.0,
+                "ssh_prnamt_type": "SH",
+                "put_call": "",
+                "value_usd": 5_000_000.0,
+            },
+            {
+                "accession_number": "Q1_CTR",
+                "cusip": "222222102",
+                "name_of_issuer": "BBB",
+                "title_of_class": "COM",
+                "ssh_prnamt": 80_000.0,
+                "ssh_prnamt_type": "SH",
+                "put_call": "",
+                "value_usd": 6_400_000.0,
+            },
+        ]
+    )
+    ledger = PitHoldingsLedger.from_raw_tables(meta, holdings, trading_calendar=cal)
+
+    # Before CTR reveal: AAA carries has_confidential_omitted_filer=True
+    snap_before = build_pit_stage3_snapshot(cal[268], ledger, store, s3, verify=True).set_index(
+        "yahoo_ticker"
+    )
+    assert bool(snap_before.loc["AAA", "has_confidential_omitted_filer"]) is True
+    assert bool(snap_before.loc["AAA", "has_ctr_reveal"]) is False
+
+    # After CTR reveal T+1: confidential omission resolved, BBB tagged has_ctr_reveal=True
+    snap_after = build_pit_stage3_snapshot(cal[271], ledger, store, s3, verify=True).set_index(
+        "yahoo_ticker"
+    )
+    assert bool(snap_after.loc["AAA", "has_confidential_omitted_filer"]) is False
+    assert bool(snap_after.loc["BBB", "has_ctr_reveal"]) is True
+
+    # Exposure builder masks CTR-reveal spikes when exclude_ctr_reveals=True
+    rng = np.random.default_rng(12)
+    n_stocks = 30
+    mcap = np.exp(rng.normal(23.0, 1.0, size=n_stocks))
+    so = mcap / 50.0
+    rows = []
+    for i in range(n_stocks):
+        is_ctr = i == 0
+        delta_sh = float(0.15 * so[i] if is_ctr else 0.002 * so[i] * (i - 15))
+        rows.append(
+            {
+                "query_date": cal[271],
+                "fwd_ret_date": cal[272],
+                "security_id": f"S{i:02d}",
+                "yahoo_ticker": f"T{i:02d}",
+                "n_filers": 5,
+                "pct_shares_owned": 0.05,
+                "days_to_liquidate": 5.0,
+                "shares_out_pit": float(so[i]),
+                "pit_mcap_usd": float(mcap[i]),
+                "adv_20d_usd": float(mcap[i] * 0.01),
+                "issuer_delta_shares_pit": delta_sh,
+                "issuer_total_shares_owned_pit": float(0.05 * so[i]),
+                "n_flow_filers": 5,
+                "n_buyers": 3,
+                "n_sellers": 1,
+                "mean_active_weight_shift": 0.05 if is_ctr else 0.001,
+                "delta_holder_hhi_pit": 0.1 if is_ctr else 0.01,
+                "has_ctr_reveal": is_ctr,
+                "has_confidential_omitted_filer": False,
+                "beta_252d_lag1": 1.0,
+                "fwd_day_ret": 0.001,
+                "fwd_spy_ret": 0.001,
+                "fwd_beta_adj_ret": 0.0,
+                "is_panel_eligible": True,
+            }
+        )
+    df_in = pd.DataFrame(rows)
+    out_ex = build_concentration_shift_exposures(df_in, exclude_ctr_reveals=True)
+    out_inc = build_concentration_shift_exposures(df_in, exclude_ctr_reveals=False)
+
+    ctr_ex = out_ex[out_ex["security_id"] == "S00"].iloc[0]
+    assert bool(ctr_ex["is_ctr_excluded"]) is True
+    assert np.isclose(ctr_ex["delta_pct_own_raw"], 0.15)
+    assert pd.isna(ctr_ex["delta_pct_own"])
+    assert pd.isna(ctr_ex["delta_pct_own_sn"])
+    assert pd.isna(ctr_ex["active_w_shift_sn"])
+    assert pd.isna(ctr_ex["net_buyer_ratio_sn"])
+
+    ctr_inc = out_inc[out_inc["security_id"] == "S00"].iloc[0]
+    assert bool(ctr_inc["is_ctr_excluded"]) is False
+    assert np.isclose(ctr_inc["delta_pct_own"], 0.15)
+    assert pd.notna(ctr_inc["delta_pct_own_sn"])
+

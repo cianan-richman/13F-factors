@@ -1,14 +1,14 @@
 # SEC 13F Institutional Positioning Factor & Backtester
 
-Point-in-time (PIT) quantitative research pipeline that ingests SEC EDGAR `13F-HR` and `13F-HR/A` filings for an audited **100-manager institutional universe** (`84` active + `16` closed 2015-era peers), evaluates four positioning factor hypotheses strictly In-Sample (`2015–2023`), and backtests our locked **2-Pillar Crowding** strategy via a corporate-action-clean, rack-based `T+1` MOC backtester across **Train (`2015–2023`)** and a single frozen **Out-of-Sample (`2024–present`)** holdout.
+Point-in-time (PIT) quantitative research pipeline that ingests SEC EDGAR `13F-HR` and `13F-HR/A` filings for an audited **100-manager institutional universe** (`84` active + `16` closed 2015-era peers), evaluates four positioning factor hypotheses strictly In-Sample (`2015–2023`) on a domestic listed US Common Stock universe, and backtests our locked **2-Pillar Crowding** strategy via a corporate-action-clean, rack-based `T+1` MOC backtester across **Train (`2015–2023`)** and a single frozen **Out-of-Sample (`2024–Nov 2026`, pinned `end_date: "2026-11-20"`)** holdout.
 
 ---
 
 ## Key Deliverables (Start Here)
 
 - **Research Memo (5-Page PDF):** [memo/research_memo.pdf](memo/research_memo.pdf) *(GitHub Markdown version: [memo/research_memo.md](memo/research_memo.md))* — executive summary, factor hypotheses & alternatives tested, deliberate scope cuts, PIT data-engineering care, Train vs. Frozen OOS results, honest attribution, and prioritized next steps.
-- **Self-Contained Interactive Notebook:** [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) — 29 pre-executed cells containing all native `statsmodels` OLS summaries, decile & macro-regime tables, GMV-annotated backtest tearsheets, and all 12 saved charts ([outputs/charts/](outputs/charts/)).
-- **Detailed Engineering & Audit Trail:** [docs/research_log.md](docs/research_log.md) (chronological technical log of every data issue encountered and resolved) and [docs/data_governance.md](docs/data_governance.md) (100-manager universe governance and CIK resolution).
+- **Self-Contained Interactive Notebook:** [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) — 29 pre-executed cells containing all native `statsmodels` OLS summaries, decile & macro-regime tables, Total-GMV-annotated backtest tearsheets, and all 12 saved charts ([outputs/charts/](outputs/charts/)).
+- **Detailed Engineering & Audit Trail:** [docs/research_log.md](docs/research_log.md) (chronological technical log of every data issue encountered and resolved) and [docs/data_governance.md](docs/data_governance.md) (100-manager universe governance, CIK resolution, and CTR handling).
 
 ---
 
@@ -18,7 +18,7 @@ Point-in-time (PIT) quantitative research pipeline that ingests SEC EDGAR `13F-H
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/cianan-richman/13F-factors.git
+git clone https://github.com/ciananrichman/13F-factors.git
 cd 13F-factors
 
 # 2. Create and activate a clean virtual environment
@@ -60,7 +60,7 @@ python -m src.run_pipeline --stage backtest               # Phase 4: Train (IS) 
 # 3. Fast ~60-second live ingestion smoke check (recent filings & top tickers)
 python -m src.run_pipeline --stage ingest --smoke
 
-# 4. Run full automated QA & unit test suite (65 tests) + linter
+# 4. Run full automated QA & unit test suite (73 tests) + linter
 pytest
 ruff check .
 ```
@@ -69,35 +69,38 @@ ruff check .
 
 **Expected Cold-Clone Runtime:**
 - `--stage ingest`: ~10–15 minutes with a free `OPENFIGI_API_KEY` (~25 minutes keyless); `< 30 seconds` when re-run from cached raw files.
-- `--stage pit`: ~3 minutes (materializes `3.86M` daily rows across `2,983` US trading days and verifies bit-for-bit parity `<= 6.5e-13`).
+- `--stage pit`: ~3 minutes (materializes `3.71M` daily rows across `2,981` US trading days, avg `683.6` eligible domestic US stocks/day, and verifies bit-for-bit parity `<= 6.54e-13`).
 - `--stage factors`: ~45 seconds (strictly In-Sample `2015–2023`, zero OOS touch).
-- `--stage backtest`: ~15 seconds (Train horizon & regime studies + frozen OOS `2024+` evaluation).
+- `--stage backtest`: ~15 seconds (Train horizon & regime studies + frozen OOS `2024+` evaluation across all 3 locked expressions).
 
 ---
 
 ## Key Research & Backtest Summary
 
-For full empirical tables, regression diagnostics (`R²`, clustered SEs, deciles, `10-BD SPY` regimes), and GMV-annotated equity curves, see [memo/research_memo.pdf](memo/research_memo.pdf), [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb), and [docs/research_log.md](docs/research_log.md).
+For full empirical tables, regression diagnostics (`R²`, clustered SEs, deciles, `10-BD SPY` regimes), and Total-GMV-annotated equity curves, see [memo/research_memo.pdf](memo/research_memo.pdf), [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb), and [docs/research_log.md](docs/research_log.md).
 
 ### Phase 3 — Factor Validation (Strictly In-Sample `2015–2023`, Zero OOS Touch)
 
 | Signal Hypothesis | Primary Metric (Size-Neutral) | Slope (`bps/d`) | `z` / `t` | `p`-value | Decision |
 |---|---|---:|---:|---:|---|
-| **1. Crowding (2-Pillar)** | `crowding_z` (`0.5*pct_own + 0.5*days_to_exit`) | **`-0.535`** *(D10−Rest: `-1.744`)* | **`-2.38`** *(`-2.74`)* | **`0.0175`** *(`0.0061`)* | **VALIDATED → Backtest** |
-| **2. Concentration Shifts** | `delta_pct_own` (PIT `13F-HR/A`-safe QoQ Δ) | `-0.055` | `-0.23` | `0.8166` | **REJECTED** *(stale 45d flow, `ρ_63d = 0.165`)* |
-| **3a. Smart Money (Dollars)** | `dollars_rpt` / `log_dollars_rpt_sn` *(report-date)* | `+0.004` / `-0.246` | `+0.01` / `-0.77` | `0.990` / `0.442` | **REJECTED** *(size-confounded / dominated)* |
-| **3b. Smart Money (Skill)** | `skill_conv_sn` *(8Q static `IR_badj` manager rank)* | `-0.044` | `-0.06` | `0.9509` | **REJECTED** *(weak persistence `IC=+0.034`)* |
+| **1. Crowding (2-Pillar)** | `crowding_z` (`0.5*pct_own + 0.5*days_to_exit`) | **`-0.458`** *(D10−Rest: `-1.393`)* | **`-2.00`** *(`-2.15`)* | **`0.0452`** *(`0.0313`)* | **VALIDATED → Backtest** |
+| **2. Concentration Shifts** | `delta_pct_own` (PIT `13F-HR/A`-safe, ex-CTR) | `-0.035` | `-0.15` | `0.8820` | **REJECTED** *(stale 45d flow, `ρ_63d = 0.169`)* |
+| **3a. Smart Money (Dollars)** | `dollars_rpt` / `log_dollars_rpt_sn` *(report-date)* | `+0.059` / `-0.255` | `+0.17` / `-0.79` | `0.868` / `0.432` | **REJECTED** *(size-confounded / dominated)* |
+| **3b. Smart Money (Skill)** | `skill_conv_sn` *(8Q static `IR_badj` manager rank)* | `+0.016` | `+0.02` | `0.9820` | **REJECTED** *(weak persistence `IC=+0.031`)* |
 
-### Phase 4 — Frozen Strategy Backtest (`Buffered 25 bps`, `5 bps` One-Way = `10 bps` RT, `5% ADV` Cap)
+### Phase 4 — Frozen Strategy Backtest (`Buffered ±20% / ±2%`, Tiered `5/12 bps` One-Way, `Total GMV` Basis, `5% ADV` Cap)
 
-| Frozen Strategy | Window | Days | Avg GMV | `pnl_raw` | `pnl` (Net) | Ann Ret | Sharpe (Raw/Net) | Max DD | Turn (`/yr`) | `SPY β` |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **Short `> D7` vs. `SPY`** | Train (`2015–2023`) | 2,232 | `$6.89M` | `+$2.57M` | `+$2.43M` | `+3.99%` | `+0.51 / +0.49` | `-23.1%` | `3.71×` | `-0.031` |
-| **Short `> D7` vs. `SPY`** | **Frozen OOS (`2024–2026`)** | **726** | `$7.75M` | `+$1.45M` | **`+$1.39M`** | **`+6.20%`** | **`+0.71 / +0.68`** | **`-10.5%`** | `4.40×` | `+0.066` |
-| **Short `> D7` vs. `SPY`** | **Full (`2015–2026`)** | **2,958** | `$7.11M` | `+$4.06M` | **`+$3.87M`** | **`+4.64%`** | **`+0.57 / +0.55`** | `-22.3%` | `3.90×` | `-0.010` |
-| Short `D10` / Long `D1–D9` | Train (`2015–2023`) | 2,232 | `$10.07M` | `+$1.52M` | `+$1.30M` | `+1.46%` | `+0.65 / +0.55` | `-4.7%` | `4.69×` | `-0.009` |
-| Short `D10` / Long `D1–D9` | **Frozen OOS (`2024–2026`)** | **726** | `$11.32M` | `+$48.5k` | **`-$42.2k`** | `-0.13%` | `+0.05 / -0.04` | `-5.0%` | `4.95×` | `+0.023` |
-| Short `D10` / Long `D1–D9` | Full (`2015–2026`) | 2,958 | `$10.81M` | `+$1.74M` | `+$1.43M` | `+1.13%` | `+0.51 / +0.42` | `-5.0%` | `4.59×` | `-0.003` |
+| Frozen Strategy | Window | Days | Avg Total GMV | Eff. Cost | `pnl_raw` | `pnl` (Net) | Ann Ret | Sharpe (Raw/Net) | Max DD | 1W Turn (`/yr`) | `SPY β` |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **Continuous Crowding L/S** | Train (`2015–2023`) | 2,232 | `$11.62M` | `10.0 bps` | `+$1.34M` | `+$1.01M` | `+0.98%` | `+0.59 / +0.44` | `-4.4%` | `1.96×` | `-0.001` |
+| **Continuous Crowding L/S** | **Frozen OOS (`2024–2026`)** | **726** | `$12.60M` | `9.5 bps` | `+$900k` | **`+$759k`** | **`+2.09%`** | **`+0.90 / +0.76`** | **`-3.2%`** | `2.42×` | `+0.013` |
+| **Continuous Crowding L/S** | **Full (`2015–2026`)** | **2,958** | `$11.87M` | `9.8 bps` | `+$2.26M` | **`+$1.80M`** | **`+1.29%`** | **`+0.68 / +0.54`** | **`-4.9%`** | `2.09×` | `+0.002` |
+| Short `D10` / Long `D1–D9` | Train (`2015–2023`) | 2,232 | `$7.27M` | `9.2 bps` | `+$1.06M` | `+$740k` | `+1.15%` | `+0.64 / +0.45` | `-5.3%` | `3.16×` | `-0.006` |
+| Short `D10` / Long `D1–D9` | **Frozen OOS (`2024–2026`)** | **726** | `$8.51M` | `8.9 bps` | `+$272k` | **`+$152k`** | `+0.62%` | `+0.36 / +0.20` | **`-3.8%`** | `3.17×` | `+0.022` |
+| Short `D10` / Long `D1–D9` | Full (`2015–2026`) | 2,958 | `$7.58M` | `9.1 bps` | `+$1.34M` | `+$909k` | `+1.02%` | `+0.55 / +0.37` | `-5.1%` | `3.16×` | `-0.000` |
+| **Short `> D7` vs. `SPY`** | Train (`2015–2023`) | 2,232 | `$11.64M` | `9.6 bps` | `+$1.73M` | `+$1.55M` | `+1.50%` | `+0.43 / +0.39` | `-12.1%` | `1.39×` | `-0.014` |
+| **Short `> D7` vs. `SPY`** | **Frozen OOS (`2024–2026`)** | **726** | `$11.97M` | `9.4 bps` | `+$1.32M` | **`+$1.24M`** | **`+3.61%`** | **`+0.81 / +0.76`** | **`-5.6%`** | `1.76×` | `+0.030` |
+| **Short `> D7` vs. `SPY`** | **Full (`2015–2026`)** | **2,958** | `$11.73M` | `9.6 bps` | `+$3.08M` | **`+$2.82M`** | **`+2.05%`** | **`+0.54 / +0.50`** | `-12.0%` | `1.48×` | `-0.005` |
 
 ---
 
@@ -106,7 +109,7 @@ For full empirical tables, regression diagnostics (`R²`, clustered SEs, deciles
 ```text
 ├── config/
 │   ├── filers.yaml           # Audited 100-manager fundamental registry (84 active + 16 closed peers)
-│   ├── settings.yaml         # IS/OOS boundaries, dynamic SPY-scaled universe floors, cost/rebal grids
+│   ├── settings.yaml         # Pinned IS/OOS boundaries, dynamic SPY-scaled floors, tiered 5/12 bps costs
 │   └── cusip_overrides.yaml  # Manual corporate-action / CUSIP mapping overrides
 ├── src/
 │   ├── config.py             # Config & .env credential loader
@@ -116,12 +119,12 @@ For full empirical tables, regression diagnostics (`R²`, clustered SEs, deciles
 │   ├── pit/                  # PIT 13F-HR/A & CTR ledger, split-aligned market store, XBRL scrubber, daily panel
 │   ├── factors/              # ownership (core helpers), crowding (+ SPY regime), concentration, smart_money, manager_skill
 │   └── backtest/             # Rack-based corporate-action-clean T+1 MOC engine (horizons, D10-vs-Rest, OOS)
-├── tests/                    # 65 unit & adversarial PIT/lookahead/amendment/backtest invariant tests
+├── tests/                    # 73 unit & adversarial PIT/lookahead/amendment/data-hygiene/backtest tests
 ├── notebooks/
 │   └── factor_research.ipynb # Self-contained pre-executed research & backtest notebook (29 cells)
 ├── outputs/                  # Generated audit reports, factor CSVs, backtest parquets, and 12 charts
 ├── docs/
-│   ├── data_governance.md    # Universe selection & entity-resolution provenance
+│   ├── data_governance.md    # Universe selection, entity-resolution provenance & CTR governance
 │   └── research_log.md       # Chronological technical research log & living backlog
 └── memo/
     ├── research_memo.pdf     # 5-page submission Research Memo (PDF)

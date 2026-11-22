@@ -63,8 +63,14 @@ def test_exact_beta_hedge_identity_and_adv_cap() -> None:
     df = out["daily"]
     st = out["stats"]
 
-    # Day 0 GMV must equal |$100k| + |$25k (capped)| = $125,000!
+    # Day 0 stock GMV = $125k, SPY hedge = +$140k -> Total Portfolio GMV = $265k!
     assert np.isclose(df["gmv"].iloc[0], 125_000.0)
+    assert np.isclose(df["total_gmv"].iloc[0], 265_000.0)
+    assert np.isclose(st["avg_stock_gmv"], 125_000.0)
+    assert np.isclose(st["avg_spy_hedge_abs"], 140_000.0)
+    assert np.isclose(st["avg_daily_gmv"], 265_000.0)
+    assert np.isclose(st["capital_base_usd"], 265_000.0)
+    assert np.isclose(st["ann_two_way_turnover_x"], 2.0 * st["ann_turnover_x"])
     assert np.isclose(st["pct_days_adv_capped"], 1.0)
 
     # Exact algebraic identity on every single day: pnl_raw == pnl_stock_raw + pnl_spy_hedge
@@ -151,7 +157,7 @@ def test_fixed_capital_base_preserves_sharpe_and_honest_return() -> None:
         one_way_cost_bps=0.0,
         spy_hedge_cost_bps=0.0,
         rebalance_mode="daily",
-        capital_base_usd=125_000.0,  # exact 1x full-scale GMV (2x avg GMV across 10 days)
+        capital_base_usd=265_000.0,  # exact 1x full-scale Total GMV ($125k stocks + $140k SPY)
     )
     st_auto = run_rack_backtest(racks, cfg_auto)["stats"]
     st_fixed = run_rack_backtest(racks, cfg_fixed)["stats"]
@@ -227,3 +233,68 @@ def test_buffered_relative_band_and_dollar_neutrality_guard() -> None:
     assert np.isclose(df["traded_notional"].iloc[1], 0.0)
     # Day 20 sign flip on L0 (+$5k -> -$5k) must trigger trading cleanly
     assert df["traded_notional"].iloc[20] > 0.0
+
+
+def test_tiered_large_and_mid_cap_execution_costs() -> None:
+    """Verify tiered 5 bps (>= $10B PIT MCap) vs. 12 bps (< $10B PIT MCap) one-way costs."""
+    racks = _make_synthetic_racks(n_days=4)
+    # S1 = $50B large-cap (5 bps), S2 = $4B mid-cap (12 bps)
+    racks.pit_mcap_usd = np.tile(np.array([[50_000_000_000.0, 4_000_000_000.0]]), (4, 1))
+
+    cfg = BacktestConfig(
+        notional_per_bps=50_000.0,
+        max_adv_pct=0.05,
+        one_way_cost_bps=5.0,
+        mid_cap_one_way_bps=12.0,
+        large_cap_threshold_usd=10_000_000_000.0,
+        spy_hedge_cost_bps=0.0,
+        borrow_bps_pa=0.0,
+        rebalance_mode="daily",
+    )
+    out = run_rack_backtest(racks, cfg)
+    df = out["daily"]
+    st = out["stats"]
+
+    # Day 0: S1 trades $100k @ 5 bps = $50.00; S2 trades $25k (ADV-capped) @ 12 bps = $30.00 -> $80
+    assert np.isclose(df["exec_cost"].iloc[0], 80.0)
+    assert np.isclose(df["mid_cap_traded_notional"].iloc[0], 25_000.0)
+    # Effective blended one-way cost = (100k*5 + 25k*12) / 125k = 6.4 bps exact
+    assert np.isclose(st["effective_one_way_cost_bps"], 6.4)
+    assert np.isclose(st["pct_traded_mid_cap"], 0.20)
+
+
+def test_tradable_has_zero_t_plus_1_lookahead_on_unexpected_halt() -> None:
+    """Day-t trades must NEVER peek at t+1 fwd_day_ret / fwd_beta_adj_ret NaNs."""
+    racks_clean = _make_synthetic_racks(n_days=5)
+    racks_clean.has_price = np.ones((5, 2), dtype=np.float64)
+
+    # Unexpected trading halt on S1 on t+1 after day-2 MOC (day 2 still priced & tradable!)
+    racks_halt = _make_synthetic_racks(n_days=5)
+    racks_halt.has_price = np.ones((5, 2), dtype=np.float64)
+    racks_halt.fwd_day_ret[2, 0] = np.nan
+    racks_halt.fwd_beta_adj_ret[2, 0] = np.nan
+    # Then on day 3 S1 is halted (has_price = 0) -> exits cleanly on day 3
+    racks_halt.has_price[3, 0] = 0.0
+
+    cfg = BacktestConfig(
+        notional_per_bps=50_000.0,
+        max_adv_pct=0.05,
+        one_way_cost_bps=5.0,
+        spy_hedge_cost_bps=1.0,
+        rebalance_mode="daily",
+    )
+    df_clean = run_rack_backtest(racks_clean, cfg)["daily"]
+    df_halt = run_rack_backtest(racks_halt, cfg)["daily"]
+
+    # Day-2 MOC positions, GMV, SPY hedge, and traded notional MUST be bit-for-bit identical!
+    for col in ("gmv", "total_gmv", "spy_hedge_notional", "traded_notional", "exec_cost"):
+        assert np.isclose(df_halt[col].iloc[2], df_clean[col].iloc[2])
+
+    # Algebraic PnL identity still holds exactly on the halt day (live SPY hedge moves by f_spy)
+    diff = np.abs(df_halt["pnl_raw"] - (df_halt["pnl_stock_raw"] + df_halt["pnl_spy_hedge"]))
+    assert float(diff.max()) < 1e-10
+
+    # On day 3 (when has_price[3, 0] == 0 is observable), S1 exits -> stock GMV drops to $25k (S2)
+    assert np.isclose(df_halt["gmv"].iloc[3], 25_000.0)
+
+

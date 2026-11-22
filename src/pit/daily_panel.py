@@ -316,6 +316,7 @@ def build_daily_pit_panel(
         tmp["accession_number"] = st_row["accession_number"]
         tmp["source_form_type"] = st_row["source_form_type"]
         tmp["amendment_type"] = st_row["amendment_type"]
+        tmp["is_confidential_omitted"] = bool(st_row.get("is_confidential_omitted", False))
         tmp["staleness_days"] = 0
         m = map_holdings_to_securities(tmp, market_store.cusip_map, us_common_only=us_common_only)
         if not m.empty:
@@ -481,6 +482,7 @@ def build_daily_pit_panel(
             latest_acceptance_date=("acceptance_date", "max"),
             latest_effective_date=("effective_date", "max"),
             has_ctr_reveal=("is_ctr_reveal", "any"),
+            has_confidential_omitted_filer=("is_confidential_omitted", "any"),
         )
 
         # Holder HHI is scale-invariant: shares * f_fut_at_rep equals shares_pit HHI
@@ -984,6 +986,8 @@ def verify_panel_parity_against_snapshot(
         "days_to_liquidate",
     ]
     bool_cols = [
+        "has_ctr_reveal",
+        "has_confidential_omitted_filer",
         "is_domestic_sec_filer",
         "is_investable",
         "is_primary_class",

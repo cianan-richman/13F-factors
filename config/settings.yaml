@@ -4,7 +4,7 @@ window:
   start_date: "2015-01-01"
   in_sample_end: "2023-12-31"         # ~80% IS development window (2015–2023, 36 quarters)
   oos_start: "2024-01-01"             # ~20% OOS holdout window (2024–present, frozen model)
-  end_date: null                      # null = latest available trading date ("present")
+  end_date: "2026-11-20"              # Pinned evaluation cutoff for exact cold-clone reproducibility
   first_report_quarter: "2014-12-31"  # Needed to compute Q1 2015 QoQ active share deltas
 
 edgar:

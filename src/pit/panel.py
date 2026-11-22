@@ -685,6 +685,12 @@ def map_holdings_to_securities(
     merged["security_id"] = merged["security_id"].fillna(merged["cusip"])
     merged["yahoo_ticker"] = merged["yahoo_ticker"].fillna("")
     merged["figi_name"] = merged["figi_name"].fillna(merged.get("name_of_issuer", ""))
+    if "is_confidential_omitted" not in merged.columns:
+        merged["is_confidential_omitted"] = False
+    else:
+        merged["is_confidential_omitted"] = (
+            merged["is_confidential_omitted"].fillna(False).astype(bool)
+        )
 
     if us_common_only:
         merged = merged[merged["is_us_common_stock"]].copy()
@@ -708,6 +714,7 @@ def map_holdings_to_securities(
                 accession_number=("accession_number", "last"),
                 source_form_type=("source_form_type", "last"),
                 amendment_type=("amendment_type", "last"),
+                is_confidential_omitted=("is_confidential_omitted", "any"),
                 is_ctr_reveal=("is_ctr_reveal", "any"),
                 cusip=("cusip", lambda s: ",".join(sorted(set(s)))),
                 name_of_issuer=("name_of_issuer", "first"),
@@ -760,6 +767,7 @@ def aggregate_positions_by_security(
         "latest_acceptance_date",
         "latest_effective_date",
         "has_ctr_reveal",
+        "has_confidential_omitted_filer",
     ]
     if pit_holdings.empty:
         return pd.DataFrame(columns=output_cols)
@@ -811,6 +819,7 @@ def aggregate_positions_by_security(
                 "latest_acceptance_date": pd.Timestamp(grp["acceptance_date"].max()),
                 "latest_effective_date": pd.Timestamp(grp["effective_date"].max()),
                 "has_ctr_reveal": bool(grp["is_ctr_reveal"].any()),
+                "has_confidential_omitted_filer": bool(grp["is_confidential_omitted"].any()),
             }
         )
 

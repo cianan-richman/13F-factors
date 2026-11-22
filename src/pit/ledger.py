@@ -191,6 +191,12 @@ def build_pit_event_tables(
     meta["form_order"] = np.where(meta["form_type"] == "13F-HR", 0, 1)
     meta["acceptance_datetime"] = meta.get("acceptance_datetime", "").fillna("").astype(str)
     meta["amendment_type"] = meta.get("amendment_type", "").fillna("").astype(str).str.upper()
+    if "is_confidential_omitted" in meta.columns:
+        meta["is_confidential_omitted"] = (
+            meta["is_confidential_omitted"].fillna(False).astype(bool)
+        )
+    else:
+        meta["is_confidential_omitted"] = False
 
     holdings_by_acc = _normalize_filing_holdings(holdings_raw)
 
@@ -208,12 +214,14 @@ def build_pit_event_tables(
         # Current holdings state keyed by cusip -> dict of position fields
         current_map: dict[str, dict[str, Any]] = {}
         period_states: list[dict[str, Any]] = []
+        state_conf_omitted = False
 
         # Group events sharing the exact same effective_date so only one state is emitted per date
         for eff_date, day_events in ordered.groupby("effective_date", sort=True):
             latest_ev: pd.Series | None = None
             for _, ev in day_events.iterrows():
                 latest_ev = ev
+                state_conf_omitted = bool(ev["is_confidential_omitted"])
                 acc = str(ev["accession_number"])
                 form_type = str(ev["form_type"]).upper()
                 amend_type = str(ev["amendment_type"]).upper()
@@ -286,6 +294,9 @@ def build_pit_event_tables(
                     "accession_number": str(latest_ev["accession_number"]),
                     "source_form_type": str(latest_ev["form_type"]),
                     "amendment_type": str(latest_ev["amendment_type"]),
+                    # True when SEC-approved confidential positions are omitted from this filing
+                    # (making total_reported_value_usd & portfolio_weight_reported incomplete).
+                    "is_confidential_omitted": state_conf_omitted,
                     "n_positions": len(current_map),
                     "total_reported_value_usd": total_val,
                 }
@@ -474,6 +485,7 @@ class PitHoldingsLedger:
             "accession_number",
             "source_form_type",
             "amendment_type",
+            "is_confidential_omitted",
             "is_ctr_reveal",
             "cusip",
             "name_of_issuer",
@@ -504,6 +516,7 @@ class PitHoldingsLedger:
             chunk["accession_number"] = st["accession_number"]
             chunk["source_form_type"] = st["source_form_type"]
             chunk["amendment_type"] = st["amendment_type"]
+            chunk["is_confidential_omitted"] = bool(st.get("is_confidential_omitted", False))
             chunk["staleness_days"] = int((qdt - st["period_of_report"]).days)
             parts.append(chunk[output_cols])
 
@@ -615,14 +628,20 @@ def run_pit_qa_audit(
         _ = ledger.get_latest_holdings(dt, verify=True)
         checked_dates += 1
 
-    # 4. Check CTR reveal rows exist and are never active before their amendment effective_date
+    # 4. Check CTR reveal rows exist and count states with confidential omissions
     ctr_rows = ledger.holdings_events_df[ledger.holdings_events_df["is_ctr_reveal"]]
+    conf_omitted_states = (
+        int(st["is_confidential_omitted"].fillna(False).sum())
+        if "is_confidential_omitted" in st.columns
+        else 0
+    )
     return {
         "total_states": len(st),
         "total_holding_event_rows": len(ledger.holdings_events_df),
         "amendments_boundary_verified": checked_amendments,
         "sample_dates_verified": checked_dates,
         "ctr_reveal_holding_rows": len(ctr_rows),
+        "confidential_omitted_states": conf_omitted_states,
         "unique_filers": int(st["filer_id"].nunique()),
     }
 

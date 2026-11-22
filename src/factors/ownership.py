@@ -90,6 +90,7 @@ def load_factor_panel(
     sample: SampleSplit = "in_sample",
     min_signal_date: str | None = DEFAULT_IS_SIGNAL_START,
     min_cross_section: int = DEFAULT_MIN_CROSS_SECTION,
+    require_fwd_returns: bool = True,
 ) -> pd.DataFrame:
     """Load eligible daily PIT panel strictly respecting IS/OOS return-date boundaries.
 
@@ -97,6 +98,9 @@ def load_factor_panel(
       For `sample="in_sample"`, we filter on `fwd_ret_date <= in_sample_end` (NOT merely
       `query_date <= in_sample_end`), so `query_date = 2023-12-29` (whose forward return is
       earned on `2024-01-02`, the first OOS trading day) is strictly excluded from IS.
+
+    Pass `require_fwd_returns=False` when building backtest signal racks so day-`t` portfolio
+    eligibility and cross-sectional z-scores never condition on `t+1` return availability.
     """
     cfg = load_config()
     window = cfg.settings["window"]
@@ -137,7 +141,7 @@ def load_factor_panel(
     if min_signal_date is not None:
         panel = panel[panel["query_date"] >= pd.Timestamp(min_signal_date).normalize()].copy()
 
-    # Keep strictly eligible rows with valid signal, size, beta, and next-day returns
+    # Keep strictly eligible rows with valid day-t signal, size, and beta (and t+1 returns if OLS)
     valid = (
         panel["is_panel_eligible"].fillna(False)
         & panel["pct_shares_owned"].notna()
@@ -145,10 +149,14 @@ def load_factor_panel(
         & panel["pit_mcap_usd"].notna()
         & (panel["pit_mcap_usd"] > 0.0)
         & panel["beta_252d_lag1"].notna()
-        & panel["fwd_day_ret"].notna()
-        & panel["fwd_spy_ret"].notna()
-        & panel["fwd_beta_adj_ret"].notna()
     )
+    if require_fwd_returns:
+        valid = (
+            valid
+            & panel["fwd_day_ret"].notna()
+            & panel["fwd_spy_ret"].notna()
+            & panel["fwd_beta_adj_ret"].notna()
+        )
     panel = panel.loc[valid].copy()
 
     # Enforce minimum cross-section breadth per day

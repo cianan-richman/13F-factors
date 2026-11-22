@@ -72,8 +72,8 @@ CrowdingStrategyMode = Literal["short_gt_d7", "short_d10", "continuous_ls"]
 RegimeGateMode = Literal["unconditional", "risk_off_ramp", "rally_gt_3pct", "combined_two_tail"]
 
 DEFAULT_BACKTEST_OUTPUT_DIR = OUTPUTS_DIR / "backtest"
-# Frozen In-Sample OLS slope for 2-pillar crowding_z (`fwd_beta_adj_ret_bps ~ const + crowding_z`)
-FROZEN_IS_CROWDING_BETA_BPS = -0.534773
+# Fallback IS OLS slope for 2-pillar crowding_z (`fwd_beta_adj_ret_bps ~ const + crowding_z`)
+FROZEN_IS_CROWDING_BETA_BPS = -0.458152
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,9 @@ class BacktestConfig:
 
     notional_per_bps: float = 50_000.0  # $50k per 1 bps/day expected return (~$7-10M book)
     max_adv_pct: float = 0.05  # Hard 5% of 20-day ADV single-name cap
-    one_way_cost_bps: float = 5.0  # 5 bps each way (= 10 bps round-trip) on |ΔNotional|
+    one_way_cost_bps: float = 5.0  # Large-cap (or flat) one-way cost in bps on |ΔNotional|
+    mid_cap_one_way_bps: float | None = None  # If set (e.g. 12.0), applies below MCap threshold
+    large_cap_threshold_usd: float = 10_000_000_000.0  # $10B PIT MCap cutoff from settings.yaml
     spy_hedge_cost_bps: float = 1.0  # 1 bp one-way on net SPY beta-hedge notional delta
     borrow_bps_pa: float = 0.0  # Annualized short-borrow fee on short GMV (0 in ex-borrow base)
     rebalance_mode: RebalanceMode = "buffered"
@@ -108,6 +110,8 @@ class BacktestRacks:
     adv_20d_usd: np.ndarray  # (T, N) 20-day ADV in USD
     fwd_spy_ret: np.ndarray  # (T,) next-day SPY total return (decimal)
     prev_spy_ret: np.ndarray  # (T,) prior-day SPY total return t-1->t (decimal)
+    pit_mcap_usd: np.ndarray | None = None  # Optional (T, N) PIT market cap for tiered costs
+    has_price: np.ndarray | None = None  # Optional (T, N) strictly day-t priced indicator (0/1)
 
 
 def compute_quarterly_rebalance_mask(
@@ -159,13 +163,14 @@ def build_crowding_backtest_racks(
         sample=sample,
         min_signal_date=min_signal_date,
         min_cross_section=min_cross_section,
+        require_fwd_returns=False,
     )
     cf = build_crowding_exposures(elig_panel)
 
     # Strictly freeze beta_ols_bps from IS (if not passed explicitly, estimate ONLY on IS)
     if beta_ols_bps is None:
         if sample == "in_sample":
-            cf_tmp = cf.copy()
+            cf_tmp = cf.dropna(subset=["fwd_beta_adj_ret"]).copy()
             cf_tmp["fwd_beta_adj_ret_bps"] = cf_tmp["fwd_beta_adj_ret"] * 1e4
             fit = fit_clustered_crowding_ols(cf_tmp, ["crowding_z"])
             slope_bps = float(fit.params["crowding_z"])
@@ -214,11 +219,13 @@ def build_crowding_backtest_racks(
     all_cols = [
         "query_date",
         "security_id",
+        "has_market_price",
         "prev_day_ret",
         "fwd_day_ret",
         "fwd_beta_adj_ret",
         "beta_252d_lag1",
         "adv_20d_usd",
+        "pit_mcap_usd",
         "prev_spy_ret",
         "fwd_spy_ret",
     ]
@@ -250,6 +257,7 @@ def build_crowding_backtest_racks(
         .reindex(dates)
     )
 
+    full_p["has_price_f"] = full_p["has_market_price"].fillna(False).astype(np.float64)
     racks = BacktestRacks(
         dates=dates,
         fwd_ret_dates=fwd_ret_dates,
@@ -262,6 +270,8 @@ def build_crowding_backtest_racks(
         adv_20d_usd=_piv(full_p, "adv_20d_usd", fill_val=np.nan),
         fwd_spy_ret=spy_by_day["fwd_spy_ret"].to_numpy(dtype=np.float64),
         prev_spy_ret=spy_by_day["prev_spy_ret"].to_numpy(dtype=np.float64),
+        pit_mcap_usd=_piv(full_p, "pit_mcap_usd", fill_val=np.nan),
+        has_price=_piv(full_p, "has_price_f", fill_val=0.0),
     )
     return racks, slope_bps
 
@@ -289,6 +299,14 @@ def run_rack_backtest(
     n_net_recenter_days = 0
 
     one_way_rate = config.one_way_cost_bps / 1e4
+    use_tiered_costs = (
+        config.mid_cap_one_way_bps is not None and racks.pit_mcap_usd is not None
+    )
+    mid_way_rate = (
+        float(config.mid_cap_one_way_bps) / 1e4
+        if config.mid_cap_one_way_bps is not None
+        else one_way_rate
+    )
     spy_rate = config.spy_hedge_cost_bps / 1e4
     borrow_daily_rate = (config.borrow_bps_pa / 1e4) / TRADING_DAYS_PER_YEAR
     pos_buf = max(0.0, float(config.position_buffer_pct))
@@ -306,12 +324,15 @@ def run_rack_backtest(
             pspy = racks.prev_spy_ret[t]
             drifted_spy = held_spy_hedge * (1.0 + (pspy if np.isfinite(pspy) else 0.0))
 
-        # Tradable / priced mask for earning next-day beta-adjusted return on (t -> t+1]
-        fwd_badj = racks.fwd_beta_adj_ret[t]
+        # Strictly day-t observable tradability mask (NEVER peeks at t+1 fwd_day_ret!)
         fwd_raw = racks.fwd_day_ret[t]
         beta_t = racks.beta_lag1[t]
         adv_t = racks.adv_20d_usd[t]
-        tradable = np.isfinite(fwd_badj) & np.isfinite(fwd_raw) & np.isfinite(beta_t)
+        if racks.has_price is not None:
+            has_px_t = racks.has_price[t] > 0.5
+        else:
+            has_px_t = np.isfinite(adv_t) & (adv_t > 0.0)
+        tradable = has_px_t & np.isfinite(beta_t)
 
         # 2. Compute capped target notional from expected_ret_bps rack
         er_t = racks.expected_ret_bps[t]
@@ -372,9 +393,19 @@ def run_rack_backtest(
                     )
                     n_net_recenter_days += 1
 
-        # 4. Exact two-way traded notional, SPY beta-hedge notional, and costs
-        traded_notional = float(np.abs(new_held - drifted).sum())
-        exec_cost = one_way_rate * traded_notional
+        # 4. Exact two-way traded notional, tiered (or flat) execution costs, SPY hedge & borrow
+        delta_abs = np.abs(new_held - drifted)
+        traded_notional = float(delta_abs.sum())
+        if use_tiered_costs:
+            assert racks.pit_mcap_usd is not None
+            mcap_t = racks.pit_mcap_usd[t]
+            is_large = np.isfinite(mcap_t) & (mcap_t >= config.large_cap_threshold_usd)
+            rate_vec = np.where(is_large, one_way_rate, mid_way_rate)
+            exec_cost = float(np.dot(delta_abs, rate_vec))
+            mid_cap_traded = float(delta_abs[~is_large].sum())
+        else:
+            exec_cost = one_way_rate * traded_notional
+            mid_cap_traded = 0.0
 
         beta_clean = np.where(np.isfinite(beta_t), beta_t, 0.0)
         new_spy_hedge = float(-np.dot(new_held, beta_clean))
@@ -384,18 +415,20 @@ def run_rack_backtest(
         short_gmv = float(np.abs(np.minimum(new_held, 0.0)).sum())
         long_gmv = float(np.maximum(new_held, 0.0).sum())
         gmv = long_gmv + short_gmv
+        total_gmv = gmv + abs(new_spy_hedge)
         borrow_cost = borrow_daily_rate * short_gmv
 
         total_cost = exec_cost + spy_cost + borrow_cost
 
-        # 5. Realize next-day corporate-action-clean beta-adjusted PnL over (t -> t+1]
-        fwd_badj_clean = np.where(np.isfinite(fwd_badj), fwd_badj, 0.0)
+        # 5. Realize next-day corporate-action-clean beta-hedged PnL over (t -> t+1]
+        #    Exact identity: pnl_raw == pnl_stock_raw + pnl_spy_hedge (even if a held stock is
+        #    unexpectedly halted/delisted on t+1, the live day-t SPY hedge still moves by f_spy).
         fwd_raw_clean = np.where(np.isfinite(fwd_raw), fwd_raw, 0.0)
         f_spy = float(racks.fwd_spy_ret[t]) if np.isfinite(racks.fwd_spy_ret[t]) else 0.0
 
-        pnl_raw = float(np.dot(new_held, fwd_badj_clean))
         pnl_stock_raw = float(np.dot(new_held, fwd_raw_clean))
         pnl_spy_hedge = new_spy_hedge * f_spy
+        pnl_raw = pnl_stock_raw + pnl_spy_hedge
         pnl_net = pnl_raw - total_cost
 
         daily_rows.append(
@@ -407,7 +440,10 @@ def run_rack_backtest(
                 "short_gmv": short_gmv,
                 "gmv": gmv,
                 "spy_hedge_notional": new_spy_hedge,
+                "total_gmv": total_gmv,
                 "traded_notional": traded_notional,
+                "spy_traded_notional": spy_traded,
+                "mid_cap_traded_notional": mid_cap_traded,
                 "exec_cost": exec_cost,
                 "spy_cost": spy_cost,
                 "borrow_cost": borrow_cost,
@@ -446,15 +482,23 @@ def summarize_backtest(
 ) -> dict[str, Any]:
     """Compute exact dollar and percentage performance metrics from daily backtest output."""
     n_days = int(len(daily_df))
-    avg_gmv = float(daily_df["gmv"].mean())
+    avg_stock_gmv = float(daily_df["gmv"].mean())
+    avg_spy_hedge_abs = float(daily_df["spy_hedge_notional"].abs().mean())
+    total_gmv_series = (
+        daily_df["total_gmv"]
+        if "total_gmv" in daily_df.columns
+        else (daily_df["gmv"] + daily_df["spy_hedge_notional"].abs())
+    )
+    avg_total_gmv = float(total_gmv_series.mean())
     avg_short_gmv = float(daily_df["short_gmv"].mean())
     active_mask = daily_df["gmv"] > 0.0
     pct_active_days = float(active_mask.mean()) if n_days else 0.0
-    avg_active_gmv = float(daily_df.loc[active_mask, "gmv"].mean()) if active_mask.any() else 0.0
+    avg_active_gmv = float(total_gmv_series.loc[active_mask].mean()) if active_mask.any() else 0.0
+    # Apples-to-apples capital base = Total Portfolio GMV (Stocks + |SPY hedge|) unless fixed
     cap_base = (
         float(config.capital_base_usd)
         if (config.capital_base_usd is not None and config.capital_base_usd > 0.0)
-        else (avg_gmv if avg_gmv > 0.0 else 1.0)
+        else (avg_total_gmv if avg_total_gmv > 0.0 else 1.0)
     )
 
     r_raw = daily_df["pnl_raw"].to_numpy(dtype=np.float64) / cap_base
@@ -476,12 +520,27 @@ def summarize_backtest(
     max_dd_usd = float(daily_df["dd_usd"].min())
     max_dd_pct = float(max_dd_usd / cap_base)
 
-    # Annualized one-way turnover as multiple of average daily GMV (ex-day-0 inception)
+    # Standard annualized ONE-WAY turnover (0.5 * two-way traded notional / GMV, ex-day-0):
+    # rotating 100% of a portfolio once per year = exact 1.0x one-way (= 2.0x two-way).
+    spy_traded_s = (
+        daily_df["spy_traded_notional"]
+        if "spy_traded_notional" in daily_df.columns
+        else pd.Series(0.0, index=daily_df.index)
+    )
     if n_days > 1:
-        avg_daily_turn = float(daily_df["traded_notional"].iloc[1:].mean() / cap_base)
+        tot_two_way_daily = float((daily_df["traded_notional"] + spy_traded_s).iloc[1:].mean())
+        stock_two_way_daily = float(daily_df["traded_notional"].iloc[1:].mean())
+        ann_two_way_turnover_x = (tot_two_way_daily / cap_base) * TRADING_DAYS_PER_YEAR
+        ann_turnover_x = 0.5 * ann_two_way_turnover_x
+        ann_stock_one_way_turnover_x = (
+            0.5 * (stock_two_way_daily / avg_stock_gmv) * TRADING_DAYS_PER_YEAR
+            if avg_stock_gmv > 0.0
+            else 0.0
+        )
     else:
-        avg_daily_turn = 0.0
-    ann_turnover_x = avg_daily_turn * TRADING_DAYS_PER_YEAR
+        ann_two_way_turnover_x = 0.0
+        ann_turnover_x = 0.0
+        ann_stock_one_way_turnover_x = 0.0
 
     spy_var = float(np.var(spy_r, ddof=1))
     realized_spy_beta = float(np.cov(r_net, spy_r, ddof=1)[0, 1] / spy_var) if spy_var > 0 else 0.0
@@ -504,15 +563,30 @@ def summarize_backtest(
         float(net_pct_active.abs().max()) if not net_pct_active.empty else 0.0
     )
 
+    tot_traded = float(daily_df["traded_notional"].sum())
+    tot_exec = float(daily_df["exec_cost"].sum())
+    tot_mid_traded = (
+        float(daily_df["mid_cap_traded_notional"].sum())
+        if "mid_cap_traded_notional" in daily_df.columns
+        else 0.0
+    )
+    eff_cost_bps = (tot_exec / tot_traded * 1e4) if tot_traded > 0.0 else config.one_way_cost_bps
+    pct_traded_mid_cap = (tot_mid_traded / tot_traded) if tot_traded > 0.0 else 0.0
+
     return {
         "name": config.name or config.rebalance_mode,
         "rebalance_mode": config.rebalance_mode,
         "one_way_cost_bps": config.one_way_cost_bps,
+        "mid_cap_one_way_bps": config.mid_cap_one_way_bps,
+        "effective_one_way_cost_bps": eff_cost_bps,
+        "pct_traded_mid_cap": pct_traded_mid_cap,
         "borrow_bps_pa": config.borrow_bps_pa,
         "n_trading_days": n_days,
         "pct_active_days": pct_active_days,
         "avg_n_positions": float(daily_df["n_positions"].mean()),
-        "avg_daily_gmv": avg_gmv,
+        "avg_stock_gmv": avg_stock_gmv,
+        "avg_spy_hedge_abs": avg_spy_hedge_abs,
+        "avg_daily_gmv": avg_total_gmv,
         "avg_active_gmv": avg_active_gmv,
         "capital_base_usd": cap_base,
         "pct_days_adv_capped": float(n_adv_capped_days / n_days) if n_days else 0.0,
@@ -538,6 +612,8 @@ def summarize_backtest(
         "max_dd_usd": max_dd_usd,
         "max_dd_pct": max_dd_pct,
         "ann_turnover_x": ann_turnover_x,
+        "ann_two_way_turnover_x": ann_two_way_turnover_x,
+        "ann_stock_one_way_turnover_x": ann_stock_one_way_turnover_x,
         "realized_spy_beta": realized_spy_beta,
         "breakeven_borrow_bps_pa": breakeven_borrow_bps_pa,
     }
@@ -550,6 +626,8 @@ def run_crowding_horizon_comparison(
     notional_per_bps: float = 50_000.0,
     max_adv_pct: float = 0.05,
     one_way_cost_bps: float = 5.0,
+    mid_cap_one_way_bps: float | None = 12.0,
+    large_cap_threshold_usd: float = 10_000_000_000.0,
     spy_hedge_cost_bps: float = 1.0,
     position_buffer_pct: float = 0.20,
     max_net_exposure_pct: float | None = 0.02,
@@ -575,6 +653,8 @@ def run_crowding_horizon_comparison(
             notional_per_bps=notional_per_bps,
             max_adv_pct=max_adv_pct,
             one_way_cost_bps=one_way_cost_bps,
+            mid_cap_one_way_bps=mid_cap_one_way_bps,
+            large_cap_threshold_usd=large_cap_threshold_usd,
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=0.0,
             rebalance_mode=mode,
@@ -587,7 +667,7 @@ def run_crowding_horizon_comparison(
         results[mode] = res
         summary_rows.append(res["stats"])
 
-    # Cost & short-borrow sensitivity across buffered & quarterly modes
+    # Flat cost sensitivity (0 / 5 / 10 / 20 bps) + Tiered (5/12 bps) across all 3 horizons
     sens_rows: list[dict[str, Any]] = []
     for mode in ("daily", "buffered", "quarterly"):
         for c_bps in (0.0, 5.0, 10.0, 20.0):
@@ -595,6 +675,8 @@ def run_crowding_horizon_comparison(
                 notional_per_bps=notional_per_bps,
                 max_adv_pct=max_adv_pct,
                 one_way_cost_bps=c_bps,
+                mid_cap_one_way_bps=None,
+                large_cap_threshold_usd=large_cap_threshold_usd,
                 spy_hedge_cost_bps=0.0 if c_bps == 0.0 else spy_hedge_cost_bps,
                 borrow_bps_pa=0.0,
                 rebalance_mode=mode,
@@ -604,6 +686,22 @@ def run_crowding_horizon_comparison(
                 name=f"{mode}_{int(c_bps)}bps",
             )
             sens_rows.append(run_rack_backtest(racks, cfg)["stats"])
+        if mid_cap_one_way_bps is not None:
+            cfg_t = BacktestConfig(
+                notional_per_bps=notional_per_bps,
+                max_adv_pct=max_adv_pct,
+                one_way_cost_bps=one_way_cost_bps,
+                mid_cap_one_way_bps=mid_cap_one_way_bps,
+                large_cap_threshold_usd=large_cap_threshold_usd,
+                spy_hedge_cost_bps=spy_hedge_cost_bps,
+                borrow_bps_pa=0.0,
+                rebalance_mode=mode,
+                position_buffer_pct=position_buffer_pct,
+                max_net_exposure_pct=max_net_exposure_pct,
+                quarterly_offset_days=quarterly_offset_days,
+                name=f"{mode}_tiered_{int(one_way_cost_bps)}_{int(mid_cap_one_way_bps)}bps",
+            )
+            sens_rows.append(run_rack_backtest(racks, cfg_t)["stats"])
 
     borrow_rows: list[dict[str, Any]] = []
     for b_pa in (0.0, 35.0, 100.0, 250.0):
@@ -611,6 +709,8 @@ def run_crowding_horizon_comparison(
             notional_per_bps=notional_per_bps,
             max_adv_pct=max_adv_pct,
             one_way_cost_bps=one_way_cost_bps,
+            mid_cap_one_way_bps=mid_cap_one_way_bps,
+            large_cap_threshold_usd=large_cap_threshold_usd,
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=b_pa,
             rebalance_mode="buffered",
@@ -712,12 +812,13 @@ def build_d10_vs_rest_backtest_racks(
         sample=sample,
         min_signal_date=min_signal_date,
         min_cross_section=min_cross_section,
+        require_fwd_returns=False,
     )
     cf = build_crowding_exposures(elig_panel)
 
     if beta_ols_bps is None:
         if sample == "in_sample":
-            cf_tmp = cf.copy()
+            cf_tmp = cf.dropna(subset=["fwd_beta_adj_ret"]).copy()
             cf_tmp["fwd_beta_adj_ret_bps"] = cf_tmp["fwd_beta_adj_ret"] * 1e4
             fit_c = fit_clustered_crowding_ols(cf_tmp, ["crowding_z"])
             slope_bps = float(fit_c.params["crowding_z"])
@@ -783,11 +884,13 @@ def build_d10_vs_rest_backtest_racks(
     all_cols = [
         "query_date",
         "security_id",
+        "has_market_price",
         "prev_day_ret",
         "fwd_day_ret",
         "fwd_beta_adj_ret",
         "beta_252d_lag1",
         "adv_20d_usd",
+        "pit_mcap_usd",
         "prev_spy_ret",
         "fwd_spy_ret",
     ]
@@ -812,6 +915,7 @@ def build_d10_vs_rest_backtest_racks(
         .reindex(dates)
     )
 
+    full_p["has_price_f"] = full_p["has_market_price"].fillna(False).astype(np.float64)
     racks = BacktestRacks(
         dates=dates,
         fwd_ret_dates=fwd_ret_dates,
@@ -824,6 +928,8 @@ def build_d10_vs_rest_backtest_racks(
         adv_20d_usd=_piv(full_p, "adv_20d_usd", fill_val=np.nan),
         fwd_spy_ret=spy_by_day["fwd_spy_ret"].to_numpy(dtype=np.float64),
         prev_spy_ret=spy_by_day["prev_spy_ret"].to_numpy(dtype=np.float64),
+        pit_mcap_usd=_piv(full_p, "pit_mcap_usd", fill_val=np.nan),
+        has_price=_piv(full_p, "has_price_f", fill_val=0.0),
     )
     return racks, spy_ret_10d, slope_bps
 
@@ -834,6 +940,8 @@ def run_d10_vs_rest_regime_study(
     notional_per_bps: float = 50_000.0,
     max_adv_pct: float = 0.05,
     one_way_cost_bps: float = 5.0,
+    mid_cap_one_way_bps: float | None = 12.0,
+    large_cap_threshold_usd: float = 10_000_000_000.0,
     spy_hedge_cost_bps: float = 1.0,
     position_buffer_pct: float = 0.20,
     max_net_exposure_pct: float | None = 0.02,
@@ -858,6 +966,8 @@ def run_d10_vs_rest_regime_study(
         notional_per_bps=notional_per_bps,
         max_adv_pct=max_adv_pct,
         one_way_cost_bps=one_way_cost_bps,
+        mid_cap_one_way_bps=mid_cap_one_way_bps,
+        large_cap_threshold_usd=large_cap_threshold_usd,
         spy_hedge_cost_bps=spy_hedge_cost_bps,
         borrow_bps_pa=0.0,
         rebalance_mode="buffered",
@@ -892,11 +1002,15 @@ def run_d10_vs_rest_regime_study(
             adv_20d_usd=base_racks.adv_20d_usd,
             fwd_spy_ret=base_racks.fwd_spy_ret,
             prev_spy_ret=base_racks.prev_spy_ret,
+            pit_mcap_usd=base_racks.pit_mcap_usd,
+            has_price=base_racks.has_price,
         )
         cfg = BacktestConfig(
             notional_per_bps=notional_per_bps,
             max_adv_pct=max_adv_pct,
             one_way_cost_bps=one_way_cost_bps,
+            mid_cap_one_way_bps=mid_cap_one_way_bps,
+            large_cap_threshold_usd=large_cap_threshold_usd,
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=0.0,
             rebalance_mode="buffered",
@@ -933,24 +1047,36 @@ def run_frozen_oos_evaluation(
     notional_per_bps: float = 50_000.0,
     max_adv_pct: float = 0.05,
     one_way_cost_bps: float = 5.0,
+    mid_cap_one_way_bps: float | None = 12.0,
+    large_cap_threshold_usd: float = 10_000_000_000.0,
     spy_hedge_cost_bps: float = 1.0,
     position_buffer_pct: float = 0.20,
     max_net_exposure_pct: float | None = 0.02,
-    frozen_slope_bps: float = FROZEN_IS_CROWDING_BETA_BPS,
+    frozen_slope_bps: float | None = None,
     output_dir: Path | None = DEFAULT_BACKTEST_OUTPUT_DIR,
 ) -> dict[str, Any]:
-    """Run single honest Out-of-Sample (`2024+`) evaluation of both frozen IS strategies.
+    """Run single honest Out-of-Sample (`2024+`) evaluation of all 3 frozen IS strategies.
 
-    Uses strictly frozen In-Sample parameters (`frozen_slope_bps = -0.534773 bps/d`,
-    Buffered ±20% per-position trade-to-boundary band + ±2% net-exposure guard,
-    5 bps one-way = 10 bps RT, $50k/bps, 5% ADV cap) with ZERO re-estimation on OOS data.
+    Uses strictly frozen In-Sample OLS slope (estimated solely on `in_sample` when
+    `frozen_slope_bps is None`), Buffered ±20% per-position trade-to-boundary band + ±2%
+    net-exposure guard, tiered 5/12 bps one-way costs (`>= $10B` / `< $10B` PIT MCap),
+    $50k/bps, and 5% ADV cap — with ZERO re-estimation on OOS data.
     Evaluates:
-      1. Primary:   Unconditional Buffered Dollar- & Beta-Neutral `Short D10 / Long D1-D9`
-      2. Secondary: Buffered `Short > D7` Crowding vs. `SPY`
+      1. Primary:     Unconditional Buffered Dollar- & Beta-Neutral `Short D10 / Long D1-D9`
+      2. Continuous:  Buffered Dollar- & Beta-Neutral `Continuous Crowding L/S` (`-crowding_z`)
+      3. Secondary:   Buffered `Short > D7` Crowding vs. `SPY`
     across Train (`in_sample`), Test (`oos`), and Full (`full`) spans, plus OOS factor OLS
     and OOS short-borrow sensitivity.
     """
     from src.factors.crowding import compute_crowding_decile_profile
+
+    if frozen_slope_bps is None:
+        is_panel = build_crowding_exposures(load_factor_panel(sample="in_sample"))
+        is_panel["fwd_beta_adj_ret_bps"] = is_panel["fwd_beta_adj_ret"] * 1e4
+        is_fit = fit_clustered_crowding_ols(is_panel, ["crowding_z"])
+        resolved_slope_bps = float(is_fit.params["crowding_z"])
+    else:
+        resolved_slope_bps = float(frozen_slope_bps)
 
     # 1. Pure OOS factor validation (crowding_z OLS & D10 - Rest spread, zero refit)
     oos_panel = build_crowding_exposures(load_factor_panel(sample="oos"))
@@ -964,6 +1090,7 @@ def run_frozen_oos_evaluation(
         "oos_end_fwd_date": str(pd.Timestamp(oos_panel["fwd_ret_date"].max()).date()),
         "oos_n_days": int(oos_panel["query_date"].nunique()),
         "oos_n_obs": int(len(oos_panel)),
+        "frozen_is_slope_bps": resolved_slope_bps,
         "oos_slope_bps": float(oos_fit.params["crowding_z"]),
         "oos_slope_se": float(oos_fit.bse["crowding_z"]),
         "oos_slope_z": float(oos_fit.tvalues["crowding_z"]),
@@ -985,12 +1112,14 @@ def run_frozen_oos_evaluation(
         # Strategy 1: Unconditional Buffered Dollar- & Beta-Neutral Short D10 / Long D1-D9
         r_d10, _, _ = build_d10_vs_rest_backtest_racks(
             sample=split_name,  # type: ignore[arg-type]
-            beta_ols_bps=frozen_slope_bps,
+            beta_ols_bps=resolved_slope_bps,
         )
         cfg_d10 = BacktestConfig(
             notional_per_bps=notional_per_bps,
             max_adv_pct=max_adv_pct,
             one_way_cost_bps=one_way_cost_bps,
+            mid_cap_one_way_bps=mid_cap_one_way_bps,
+            large_cap_threshold_usd=large_cap_threshold_usd,
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=0.0,
             rebalance_mode="buffered",
@@ -1003,16 +1132,42 @@ def run_frozen_oos_evaluation(
         summary_rows.append(st_d10)
         daily_results[("d10_vs_rest", split_name)] = res_d10
 
-        # Strategy 2: Buffered Short >D7 Crowding vs. SPY
+        # Strategy 2: Buffered Dollar- & Beta-Neutral Continuous Crowding L/S
+        r_cls, _ = build_crowding_backtest_racks(
+            sample=split_name,  # type: ignore[arg-type]
+            strategy_mode="continuous_ls",
+            beta_ols_bps=resolved_slope_bps,
+        )
+        cfg_cls = BacktestConfig(
+            notional_per_bps=notional_per_bps,
+            max_adv_pct=max_adv_pct,
+            one_way_cost_bps=one_way_cost_bps,
+            mid_cap_one_way_bps=mid_cap_one_way_bps,
+            large_cap_threshold_usd=large_cap_threshold_usd,
+            spy_hedge_cost_bps=spy_hedge_cost_bps,
+            borrow_bps_pa=0.0,
+            rebalance_mode="buffered",
+            position_buffer_pct=position_buffer_pct,
+            max_net_exposure_pct=max_net_exposure_pct,
+            name="Continuous Crowding L/S (Dollar-Neutral)",
+        )
+        res_cls = run_rack_backtest(r_cls, cfg_cls)
+        st_cls = {**res_cls["stats"], "split": split_label, "strategy_key": "continuous_ls"}
+        summary_rows.append(st_cls)
+        daily_results[("continuous_ls", split_name)] = res_cls
+
+        # Strategy 3: Buffered Short >D7 Crowding vs. SPY
         r_gt7, _ = build_crowding_backtest_racks(
             sample=split_name,  # type: ignore[arg-type]
             strategy_mode="short_gt_d7",
-            beta_ols_bps=frozen_slope_bps,
+            beta_ols_bps=resolved_slope_bps,
         )
         cfg_gt7 = BacktestConfig(
             notional_per_bps=notional_per_bps,
             max_adv_pct=max_adv_pct,
             one_way_cost_bps=one_way_cost_bps,
+            mid_cap_one_way_bps=mid_cap_one_way_bps,
+            large_cap_threshold_usd=large_cap_threshold_usd,
             spy_hedge_cost_bps=spy_hedge_cost_bps,
             borrow_bps_pa=0.0,
             rebalance_mode="buffered",
@@ -1028,6 +1183,7 @@ def run_frozen_oos_evaluation(
         if split_name == "oos":
             for skey, s_racks, s_name in [
                 ("d10_vs_rest", r_d10, "Short D10 / Long D1-D9 (OOS)"),
+                ("continuous_ls", r_cls, "Continuous Crowding L/S (OOS)"),
                 ("short_gt_d7", r_gt7, "Short >D7 vs. SPY (OOS)"),
             ]:
                 for b_pa in (0.0, 35.0, 100.0, 250.0):
@@ -1035,6 +1191,8 @@ def run_frozen_oos_evaluation(
                         notional_per_bps=notional_per_bps,
                         max_adv_pct=max_adv_pct,
                         one_way_cost_bps=one_way_cost_bps,
+                        mid_cap_one_way_bps=mid_cap_one_way_bps,
+                        large_cap_threshold_usd=large_cap_threshold_usd,
                         spy_hedge_cost_bps=spy_hedge_cost_bps,
                         borrow_bps_pa=b_pa,
                         rebalance_mode="buffered",
@@ -1062,7 +1220,7 @@ def run_frozen_oos_evaluation(
                 )
 
     return {
-        "frozen_slope_bps": frozen_slope_bps,
+        "frozen_slope_bps": resolved_slope_bps,
         "oos_factor_check": oos_factor_check,
         "oos_deciles": oos_dec,
         "summary": summary_df,
@@ -1088,7 +1246,19 @@ def main() -> int:
     )
     parser.add_argument("--notional-per-bps", type=float, default=50_000.0)
     parser.add_argument("--cost-bps", type=float, default=5.0)
+    parser.add_argument(
+        "--mid-cap-cost-bps",
+        type=float,
+        default=12.0,
+        help="One-way mid-cap (<$10B) cost in bps; pass negative value for flat --cost-bps.",
+    )
     args = parser.parse_args()
+    mid_cap_bps = None if args.mid_cap_cost_bps < 0 else args.mid_cap_cost_bps
+    cost_label = (
+        f"tiered {args.cost_bps:.0f}/{mid_cap_bps:.0f}bps one-way"
+        if mid_cap_bps is not None
+        else f"{args.cost_bps:.0f}bps flat one-way"
+    )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -1099,11 +1269,12 @@ def main() -> int:
         out = run_frozen_oos_evaluation(
             notional_per_bps=args.notional_per_bps,
             one_way_cost_bps=args.cost_bps,
+            mid_cap_one_way_bps=mid_cap_bps,
         )
         fc = out["oos_factor_check"]
         print(
             f"\n=== FROZEN OUT-OF-SAMPLE EVALUATION ({fc['oos_start_fwd_date']} -> "
-            f"{fc['oos_end_fwd_date']} | {fc['oos_n_days']} trading days) ==="
+            f"{fc['oos_end_fwd_date']} | {fc['oos_n_days']} trading days | {cost_label}) ==="
         )
         print(
             f"OOS Pure Factor Check (crowding_z): slope={fc['oos_slope_bps']:+.3f} bps/d "
@@ -1116,6 +1287,7 @@ def main() -> int:
             "split",
             "n_trading_days",
             "avg_daily_gmv",
+            "effective_one_way_cost_bps",
             "daily_hit_rate",
             "cum_pnl_raw",
             "cum_pnl",
@@ -1141,16 +1313,18 @@ def main() -> int:
             sample=args.sample,
             notional_per_bps=args.notional_per_bps,
             one_way_cost_bps=args.cost_bps,
+            mid_cap_one_way_bps=mid_cap_bps,
         )
         print(
             f"\n=== D10 vs REST DOLLAR- & BETA-NEUTRAL REGIME BACKTEST "
             f"({args.sample.upper()} | Full-Scale Cap: ${out['full_scale_capital_usd']:,.0f} | "
-            f"{args.cost_bps:.0f}bps one-way | Buffered ±20% pos / ±2% net) ==="
+            f"{cost_label} | Buffered ±20% pos / ±2% net) ==="
         )
         cols = [
             "name",
             "pct_active_days",
             "avg_daily_gmv",
+            "effective_one_way_cost_bps",
             "daily_hit_rate",
             "cum_pnl_raw",
             "cum_pnl",
@@ -1172,17 +1346,19 @@ def main() -> int:
         strategy_mode=args.strategy,
         notional_per_bps=args.notional_per_bps,
         one_way_cost_bps=args.cost_bps,
+        mid_cap_one_way_bps=mid_cap_bps,
     )
 
     print(
         f"\n=== CROWDING BACKTEST ({args.strategy.upper()} | {args.sample.upper()} | "
-        f"${args.notional_per_bps:,.0f}/bps | {args.cost_bps:.0f}bps one-way | 5% ADV cap) ==="
+        f"${args.notional_per_bps:,.0f}/bps | {cost_label} | 5% ADV cap) ==="
     )
     print(f"Frozen IS OLS Slope used: {out['slope_bps']:+.4f} bps/day per +1 sigma")
     cols = [
         "name",
         "n_trading_days",
         "avg_daily_gmv",
+        "effective_one_way_cost_bps",
         "daily_hit_rate",
         "cum_pnl_raw",
         "cum_pnl",
@@ -1199,10 +1375,11 @@ def main() -> int:
     print("\n--- 1. REBALANCING HORIZON COMPARISON ---")
     print(out["summary"][cols].to_string(index=False))
 
-    print("\n--- 2. ONE-WAY COST SENSITIVITY (0 / 5 / 10 / 20 bps) ---")
+    print("\n--- 2. ONE-WAY COST SENSITIVITY (0 / 5 / 10 / 20 bps + Tiered 5/12 bps) ---")
     scols = [
+        "name",
         "rebalance_mode",
-        "one_way_cost_bps",
+        "effective_one_way_cost_bps",
         "cum_pnl",
         "ann_return",
         "sharpe",

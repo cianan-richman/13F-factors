@@ -175,6 +175,8 @@ def load_concentration_panel(
         "fwd_day_ret",
         "fwd_spy_ret",
         "fwd_beta_adj_ret",
+        "has_ctr_reveal",
+        "has_confidential_omitted_filer",
         "is_panel_eligible",
     ]
     panel = pd.read_parquet(panel_path, columns=cols)
@@ -224,6 +226,7 @@ def build_concentration_shift_exposures(
     panel: pd.DataFrame,
     *,
     winsor_limits: tuple[float, float] = DEFAULT_WINSOR_LIMITS,
+    exclude_ctr_reveals: bool = True,
 ) -> pd.DataFrame:
     """Attach strictly day-`t` cross-sectional Concentration Shift exposures (and `crowding_z`).
 
@@ -231,6 +234,14 @@ def build_concentration_shift_exposures(
       - `delta_pct_own` = `issuer_delta_shares_pit / shares_out_pit` (active QoQ change in
         aggregate % shares owned across paired active filers, split- & amendment-safe).
       - `delta_pct_own_z` / `delta_pct_own_sn`: 1%/99% winsorized & size-neutralized z-scores.
+
+    CTR-reveal protection (`exclude_ctr_reveals=True`, default):
+      When a `13F-HR/A (NEW HOLDINGS)` Confidential Treatment Request reveal discloses a stake
+      months after the reporting quarter, `has_ctr_reveal` is True and raw QoQ deltas exhibit
+      artificial initiation spikes. By default, flow metrics (`delta_pct_own`,
+      `mean_active_weight_shift`, `delta_holder_hhi_pit`, `net_buyer_ratio`) are masked to NaN
+      on `has_ctr_reveal == True` stock-days (while preserving `delta_pct_own_raw` and flagging
+      `is_ctr_excluded` for auditability).
 
     Supporting shift benchmarks (for ablation):
       - `active_w_shift_sn`: constant-price `mean_active_weight_shift` (size-neutral z-score)
@@ -241,15 +252,28 @@ def build_concentration_shift_exposures(
         return panel.copy()
 
     df = build_crowding_exposures(panel, winsor_limits=winsor_limits)
-    df["delta_pct_own"] = df["issuer_delta_shares_pit"].to_numpy(dtype=np.float64) / df[
+    df["delta_pct_own_raw"] = df["issuer_delta_shares_pit"].to_numpy(dtype=np.float64) / df[
         "shares_out_pit"
     ].to_numpy(dtype=np.float64)
+    has_ctr = (
+        df["has_ctr_reveal"].fillna(False).to_numpy(dtype=bool)
+        if "has_ctr_reveal" in df.columns
+        else np.zeros(len(df), dtype=bool)
+    )
+    ctr_excluded = has_ctr if exclude_ctr_reveals else np.zeros(len(df), dtype=bool)
+    df["is_ctr_excluded"] = ctr_excluded
+    df["delta_pct_own"] = np.where(ctr_excluded, np.nan, df["delta_pct_own_raw"])
     df["net_buyer_ratio"] = np.where(
-        df["n_flow_filers"].fillna(0) > 0,
+        (~ctr_excluded) & (df["n_flow_filers"].fillna(0) > 0),
         (df["n_buyers"].fillna(0) - df["n_sellers"].fillna(0))
         / np.where(df["n_flow_filers"].fillna(0) > 0, df["n_flow_filers"].fillna(0), 1.0),
         np.nan,
     )
+    if exclude_ctr_reveals and np.any(ctr_excluded):
+        df["mean_active_weight_shift"] = np.where(
+            ctr_excluded, np.nan, df["mean_active_weight_shift"]
+        )
+        df["delta_holder_hhi_pit"] = np.where(ctr_excluded, np.nan, df["delta_holder_hhi_pit"])
 
     n_rows = len(df)
     lo_q, hi_q = winsor_limits
@@ -311,6 +335,7 @@ def run_concentration_shifts_study(
     sample: SampleSplit = "in_sample",
     min_signal_date: str | None = DEFAULT_CONCENTRATION_IS_START,
     min_cross_section: int = DEFAULT_MIN_CROSS_SECTION,
+    exclude_ctr_reveals: bool = True,
     output_dir: Path | None = DEFAULT_FACTORS_OUTPUT_DIR,
     verify_amendments: bool = True,
 ) -> dict[str, Any]:
@@ -325,7 +350,9 @@ def run_concentration_shifts_study(
         min_signal_date=min_signal_date,
         min_cross_section=min_cross_section,
     )
-    panel_cs = build_concentration_shift_exposures(panel)
+    panel_cs = build_concentration_shift_exposures(
+        panel, exclude_ctr_reveals=exclude_ctr_reveals
+    )
     panel_cs["fwd_beta_adj_ret_bps"] = panel_cs["fwd_beta_adj_ret"] * 1e4
 
     specs = [
@@ -371,11 +398,56 @@ def run_concentration_shifts_study(
         panel_cs, ["crowding_z", "delta_pct_own_sn", "active_w_shift_sn"]
     )
 
+    # Explicit CTR & confidential-omission sensitivity audit
+    has_ctr_col = (
+        panel["has_ctr_reveal"].fillna(False)
+        if "has_ctr_reveal" in panel.columns
+        else pd.Series(False, index=panel.index)
+    )
+    has_conf_col = (
+        panel["has_confidential_omitted_filer"].fillna(False)
+        if "has_confidential_omitted_filer" in panel.columns
+        else pd.Series(False, index=panel.index)
+    )
+    panel_with_ctr = build_concentration_shift_exposures(panel, exclude_ctr_reveals=False)
+    panel_with_ctr["fwd_beta_adj_ret_bps"] = panel_with_ctr["fwd_beta_adj_ret"] * 1e4
+    sub_with_ctr = panel_with_ctr.dropna(subset=["delta_pct_own_sn", "fwd_beta_adj_ret_bps"])
+    fit_with_ctr = sm.OLS(
+        sub_with_ctr["fwd_beta_adj_ret_bps"],
+        sm.add_constant(sub_with_ctr[["delta_pct_own_sn"]]),
+    ).fit(cov_type="cluster", cov_kwds={"groups": sub_with_ctr["query_date"]})
+
+    sub_ex_conf = panel_cs.loc[~has_conf_col.to_numpy(dtype=bool)].dropna(
+        subset=["active_w_shift_sn", "fwd_beta_adj_ret_bps"]
+    )
+    fit_ex_conf = sm.OLS(
+        sub_ex_conf["fwd_beta_adj_ret_bps"],
+        sm.add_constant(sub_ex_conf[["active_w_shift_sn"]]),
+    ).fit(cov_type="cluster", cov_kwds={"groups": sub_ex_conf["query_date"]})
+
+    ctr_audit = {
+        "exclude_ctr_reveals": bool(exclude_ctr_reveals),
+        "n_ctr_reveal_obs": int(has_ctr_col.sum()),
+        "n_ctr_reveal_tickers": int(panel.loc[has_ctr_col, "yahoo_ticker"].nunique()),
+        "n_conf_omitted_obs": int(has_conf_col.sum()),
+        "pct_conf_omitted_obs": float(100.0 * has_conf_col.mean()) if len(panel) else 0.0,
+        "delta_pct_own_coef_ex_ctr_bps": float(fits["delta_pct_own_sn"].params["delta_pct_own_sn"]),
+        "delta_pct_own_p_ex_ctr": float(fits["delta_pct_own_sn"].pvalues["delta_pct_own_sn"]),
+        "delta_pct_own_coef_with_ctr_bps": float(fit_with_ctr.params["delta_pct_own_sn"]),
+        "delta_pct_own_p_with_ctr": float(fit_with_ctr.pvalues["delta_pct_own_sn"]),
+        "active_w_shift_coef_all_bps": float(fits["active_w_shift_sn"].params["active_w_shift_sn"]),
+        "active_w_shift_coef_ex_conf_bps": float(fit_ex_conf.params["active_w_shift_sn"]),
+        "active_w_shift_p_ex_conf": float(fit_ex_conf.pvalues["active_w_shift_sn"]),
+    }
+
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         tag = "is" if sample == "in_sample" else sample
         summary_df.to_csv(output_dir / f"concentration_shifts_summary_{tag}.csv", index=False)
         deciles_summary.to_csv(output_dir / f"concentration_shifts_deciles_{tag}.csv", index=False)
+        pd.DataFrame([ctr_audit]).to_csv(
+            output_dir / f"concentration_ctr_audit_{tag}.csv", index=False
+        )
 
     return {
         "panel": panel_cs,
@@ -383,6 +455,7 @@ def run_concentration_shifts_study(
         "deciles_summary": deciles_summary,
         "persistence_63d": persistence,
         "amendment_audit": amend_audit,
+        "ctr_audit": ctr_audit,
         "fits": fits,
     }
 
@@ -410,6 +483,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\n=== CONCENTRATION SHIFTS VALIDATION ({args.sample.upper()}) ===")
     print("PIT 13F-HR/A Amendment Transition Audit:", res["amendment_audit"])
+    print("CTR Reveal & Confidential Omission Audit:", res["ctr_audit"])
     print("\n--- CLUSTERED OLS SUMMARY (fwd_beta_adj_ret_bps ~ const + signal) ---")
     print(res["summary"].to_string(index=False))
     print("\n--- 1-QUARTER (63d) CROSS-SECTIONAL PERSISTENCE ---")
