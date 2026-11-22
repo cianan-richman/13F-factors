@@ -1,103 +1,108 @@
-# 13F Positioning Factor & Backtester
+# SEC 13F Institutional Positioning Factor & Backtester
 
-Point-in-time (PIT) research pipeline that ingests SEC EDGAR `13F-HR` and `13F-HR/A` filings for a curated 36-fund universe of concentrated institutional managers, constructs positioning factors (**Crowding**, **Concentration Shifts**, and **Flow-vs-Price Divergence**), and evaluates them via daily cross-sectional Fama-MacBeth beta-adjusted factor regressions paired with a drifted, transaction-costed T+1 MOC backtester (`2015–2023` IS / `2024–present` OOS).
+Point-in-time (PIT) quantitative research pipeline that ingests SEC EDGAR `13F-HR` and `13F-HR/A` filings for a curated, survivorship-mitigated **100-manager universe of fundamental equity funds** (`84` active + `16` closed 2015-era peers), constructs and audits four positioning factor hypotheses strictly In-Sample (`2015–2023`), and evaluates our locked **2-Pillar Crowding** strategy via a corporate-action-clean, rack-based `T+1` MOC backtester across **Train (`2015–2023`)** and a single frozen **Out-of-Sample (`2024–present`)** holdout.
 
-## Setup (Clean Clone)
+---
+
+## Quickstart (Clean Clone)
 
 ```bash
+git clone https://github.com/cianan-richman/13F-factors.git
+cd 13F-factors
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Edit `.env` to configure your credentials:
+Edit `.env` before running ingestion:
 - **`SEC_USER_AGENT` (required by SEC EDGAR fair-access policy):**
   ```bash
   SEC_USER_AGENT="FirstName LastName your.email@domain.com"
   ```
 - **`OPENFIGI_API_KEY` (optional, recommended for faster CUSIP mapping):**
-  1. Create a free account (no credit card) at https://www.openfigi.com/api.
-  2. Verify your email, log in, and copy your key from **Account → API Key**.
-  3. Add `OPENFIGI_API_KEY="your-key-here"` to `.env`.
-  - **Automatic keyless fallback:** If `OPENFIGI_API_KEY` is omitted or left blank, `src.ingest.cusip_mapper` automatically falls back to OpenFIGI's free unauthenticated tier (`10 CUSIPs/batch`, ~23 req/min, ~15 minutes vs. ~90 seconds with a key). Progress is checkpointed incrementally per batch to `data/raw/openfigi/cusip_cache.jsonl` so interrupted runs resume seamlessly.
+  1. Create a free account at https://www.openfigi.com/api and copy your API key.
+  2. Add `OPENFIGI_API_KEY="your-key-here"` to `.env`.
+  3. **Automatic keyless fallback:** If omitted, `src.ingest.cusip_mapper` automatically uses OpenFIGI's free unauthenticated tier (`10 CUSIPs/batch`, incrementally checkpointed to `data/raw/openfigi/cusip_cache.jsonl` so interrupted runs resume seamlessly).
 
-## Usage
+---
 
-### 1. Ingest & Audit SEC EDGAR Master Index
+## Running the Pipeline
+
 ```bash
-# Download & cache quarterly EDGAR master.gz archives (2015 Q1 -> current quarter)
-python -m src.ingest.master_index
+# 1. End-to-end clean-clone run (ingest -> pit -> factors -> backtest)
+python -m src.run_pipeline --stage all
 
-# Audit master index against config/filers.yaml overrides & build resolved universe manifest
-python -m src.ingest.entity_audit --strict
-```
+# 2. Or run individual stages cleanly:
+python -m src.run_pipeline --stage ingest                 # Phase 1: EDGAR, OpenFIGI, yfinance, XBRL
+python -m src.run_pipeline --stage pit --verify-parity    # Phase 2: PIT ledger & daily security panel
+python -m src.run_pipeline --stage factors                # Phase 3: IS validation of all 4 factor hypotheses
+python -m src.run_pipeline --stage backtest               # Phase 4: Train (IS) + Frozen OOS (2024+) backtests
 
-See [docs/data_governance.md](docs/data_governance.md) for full documentation of universe selection rules, CIK migration overrides, subsidiary deduplication, and the repeatable audit workflow, and [docs/research_log.md](docs/research_log.md) for the running log of scope decisions, research rationale, and completed milestones.
-
-### 2. Download & Parse 13F-HR / 13F-HR/A Filings
-```bash
-# Download complete submissions concurrently (<= 8 req/s, .txt.gz cache) and enforce strict checks
-python -m src.ingest.filings --strict
-
-# Re-parse offline from cache without network requests (~3 seconds)
-python -m src.ingest.filings --parse-only --strict
-```
-
-### 3. Map 13F CUSIPs to `shareClassFIGI` & Tickers (OpenFIGI)
-```bash
-# Batch-map all long-equity CUSIPs/CINS via OpenFIGI (incrementally cached to JSONL)
-python -m src.ingest.cusip_mapper
-
-# Re-resolve offline from JSONL cache + config/cusip_overrides.yaml (~0.5 seconds)
-python -m src.ingest.cusip_mapper --resolve-only
-```
-
-### 4. Ingest Market Data (`yfinance`) & PIT Shares Outstanding (SEC `companyfacts`)
-```bash
-# Batched yfinance OHLCV/splits/dividends (2014->present), un-splitting, ADV_20d & 252d PIT beta
-python -m src.ingest.market_data
-
-# Strictly PIT unadjusted shares outstanding via SEC EDGAR companyfacts XBRL
-python -m src.ingest.shares_outstanding
-```
-
-### 5. End-to-End Pipeline & Expected Clean-Clone Runtime
-```bash
-# Run all Phase 1 ingestion stages end-to-end (runs Yahoo Finance & SEC companyfacts concurrently)
-python -m src.run_pipeline --stage ingest
-
-# Fast ~60-second smoke test on recent filings & top tickers
+# 3. Fast ~60-second ingestion smoke check (recent filings & top tickers)
 python -m src.run_pipeline --stage ingest --smoke
 
-# Run full pipeline (once Phase 2-4 stages are wired) & unit tests
-python -m src.run_pipeline --stage all
+# 4. Run full automated QA & unit test suite + linter
 pytest
+ruff check .
 ```
 
-**Expected Cold-Clone Runtime:** ~8–9 minutes with a free `OPENFIGI_API_KEY` (~22 minutes without an OpenFIGI key); **< 30 seconds** on subsequent cached re-runs. Yahoo Finance downloads stay intentionally conservative (`threads=4`, 2s batch pause + `YFRateLimitError` cooldown) to avoid IP throttling while running concurrently alongside SEC `companyfacts`.
+**Expected Cold-Clone Runtime:**
+- `--stage ingest`: ~10–15 minutes with a free `OPENFIGI_API_KEY` (~25 minutes keyless); `< 30 seconds` when re-run from cached raw files.
+- `--stage pit`: ~3 minutes (materializes `3.86M` daily rows across `2,983` US trading days and verifies bit-for-bit parity `<= 6.5e-13`).
+- `--stage factors`: ~45 seconds (strictly In-Sample `2015–2023`, zero OOS touch).
+- `--stage backtest`: ~15 seconds (Train horizon & regime studies + frozen OOS `2024+` evaluation).
+
+---
+
+## Key Research & Backtest Summary
+
+Full interactive outputs, native `statsmodels` summaries, and all 12 charts are pre-rendered in [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) and documented in [docs/research_log.md](docs/research_log.md) and [memo/research_memo.md](memo/research_memo.md).
+
+### Phase 3 — Factor Validation (Strictly In-Sample `2015–2023`, Zero OOS Touch)
+
+| Signal Hypothesis | Primary Metric (Size-Neutral) | Slope (`bps/d`) | `z` / `t` | `p`-value | Decision |
+|---|---|---:|---:|---:|---|
+| **1. Crowding (2-Pillar)** | `crowding_z` (`0.5*pct_own + 0.5*days_to_exit`) | **`-0.535`** *(D10−Rest: `-1.744`)* | **`-2.38`** *(`-2.74`)* | **`0.0175`** *(`0.0061`)* | **VALIDATED → Backtest** |
+| **2. Concentration Shifts** | `delta_pct_own` (PIT `13F-HR/A`-safe QoQ Δ) | `-0.055` | `-0.23` | `0.8166` | **REJECTED** *(stale 45d flow, `ρ_63d = 0.165`)* |
+| **3a. Smart Money (Dollars)** | `dollars_rpt` / `log_dollars_rpt_sn` *(report-date)* | `+0.004` / `-0.246` | `+0.01` / `-0.77` | `0.990` / `0.442` | **REJECTED** *(size-confounded / dominated)* |
+| **3b. Smart Money (Skill)** | `skill_conv_sn` *(8Q static `IR_badj` manager rank)* | `-0.044` | `-0.06` | `0.9509` | **REJECTED** *(weak persistence `IC=+0.034`)* |
+
+### Phase 4 — Frozen Strategy Backtest (`Buffered 25 bps`, `5 bps` One-Way = `10 bps` RT, `5% ADV` Cap)
+
+| Frozen Strategy | Window | Days | Avg GMV | `pnl_raw` | `pnl` (Net) | Ann Ret | Sharpe (Raw/Net) | Max DD | Turn (`/yr`) | `SPY β` |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **Short `> D7` vs. `SPY`** | Train (`2015–2023`) | 2,232 | `$6.89M` | `+$2.57M` | `+$2.43M` | `+3.99%` | `+0.51 / +0.49` | `-23.1%` | `3.71×` | `-0.031` |
+| **Short `> D7` vs. `SPY`** | **Frozen OOS (`2024–2026`)** | **726** | `$7.75M` | `+$1.45M` | **`+$1.39M`** | **`+6.20%`** | **`+0.71 / +0.68`** | **`-10.5%`** | `4.40×` | `+0.066` |
+| **Short `> D7` vs. `SPY`** | **Full (`2015–2026`)** | **2,958** | `$7.11M` | `+$4.06M` | **`+$3.87M`** | **`+4.64%`** | **`+0.57 / +0.55`** | `-22.3%` | `3.90×` | `-0.010` |
+| Short `D10` / Long `D1–D9` | Train (`2015–2023`) | 2,232 | `$10.07M` | `+$1.52M` | `+$1.30M` | `+1.46%` | `+0.65 / +0.55` | `-4.7%` | `4.69×` | `-0.009` |
+| Short `D10` / Long `D1–D9` | **Frozen OOS (`2024–2026`)** | **726** | `$11.32M` | `+$48.5k` | **`-$42.2k`** | `-0.13%` | `+0.05 / -0.04` | `-5.0%` | `4.95×` | `+0.023` |
+| Short `D10` / Long `D1–D9` | Full (`2015–2026`) | 2,958 | `$10.81M` | `+$1.74M` | `+$1.43M` | `+1.13%` | `+0.51 / +0.42` | `-5.0%` | `4.59×` | `-0.003` |
+
+---
 
 ## Project Structure
 
 ```text
 ├── config/
-│   ├── filers.yaml           # Curated 36-fund entity mapping & deduplication override registry
-│   ├── settings.yaml         # IS/OOS windows, universe filters, execution rules, cost grids
+│   ├── filers.yaml           # Audited 100-manager fundamental registry (84 active + 16 closed peers)
+│   ├── settings.yaml         # IS/OOS boundaries, dynamic SPY-scaled universe floors, cost/rebal grids
 │   └── cusip_overrides.yaml  # Manual corporate-action / CUSIP mapping overrides
-├── docs/
-│   └── data_governance.md    # EDGAR index audit workflow & entity resolution provenance
-├── data/
-│   ├── raw/                  # Cached raw EDGAR master.idx.gz, XMLs & market data (gitignored)
-│   └── processed/            # Parquet index, universe manifest, PIT ledgers & panels (gitignored)
 ├── src/
-│   ├── config.py             # Config & path loader
-│   ├── run_pipeline.py       # Single CLI entrypoint
-│   ├── ingest/               # EDGAR client, master.idx backfill, entity audit, XML & market data
-│   ├── pit/                  # Append-only 13F ledger, 13F-HR/A & CTR resolver, split adjuster
-│   ├── factors/              # Crowding, Concentration Shifts, Flow-vs-Price Divergence
-│   └── backtest/             # T+1 MOC engine, cost model, FF5+Mom attribution
-├── tests/                    # Schema, entity-dedup, and PIT discipline unit tests
-├── outputs/                  # Audit reports, charts, summary tables, diagnostics
-├── notebooks/                # Optional interactive inspection notebook
-└── memo/                     # 3–5 page research memo source & memo.pdf
+│   ├── config.py             # Config & .env credential loader
+│   ├── run_pipeline.py       # Single CLI entrypoint (--stage ingest|pit|factors|backtest|all)
+│   ├── ingest/               # EDGAR client, master.idx, entity audit, XML parser, OpenFIGI, yfinance, XBRL
+│   │   └── filer_screener.py # Optional Phase-1 governance utility used to screen the 100-manager cohort
+│   ├── pit/                  # PIT 13F-HR/A & CTR ledger, split-aligned market store, XBRL scrubber, daily panel
+│   ├── factors/              # ownership (core helpers), crowding (+ SPY regime), concentration, smart_money, manager_skill
+│   └── backtest/             # Rack-based corporate-action-clean T+1 MOC engine (horizons, D10-vs-Rest, OOS)
+├── tests/                    # 64+ unit & adversarial PIT/lookahead/amendment/backtest invariant tests
+├── notebooks/
+│   └── factor_research.ipynb # Self-contained pre-executed research & backtest notebook (29 cells)
+├── outputs/                  # Generated audit reports, factor CSVs, backtest parquets, and 12 charts
+├── docs/
+│   ├── data_governance.md    # Universe selection & entity-resolution provenance
+│   └── research_log.md       # Chronological technical research log & living backlog
+└── memo/                     # 3–5 page Research Memo (markdown + PDF)
 ```
