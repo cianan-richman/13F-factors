@@ -6,15 +6,15 @@ This document records the institutional universe selection rules, manual CIK map
 
 ## 1. Universe Selection & Scope Cuts
 
-We track a **36-fund curated universe of concentrated active institutional US equity managers** (pooled identically across all positioning factors), governed by two explicit quantitative gates verified directly from parsed 13F filings:
-- **Concentration Gate:** Median quarterly long-`SH` holdings **`<= 100` positions** (max observed across all 36: `83.0`; median: `36.5`).
-- **Institutional Scale Gate:** Median quarterly 13F long-equity book **`>= $2.0B`** (min observed across all 36: `\$2.03B`; sum of medians: **`\$339.8B`**; latest 2026 active total: **`\$407.4B`**).
+We track an **audited 100-fund universe of concentrated active institutional US equity managers** (`84` active + `16` closed 2015-era peers, expanded from our initial `36`-fund baseline; see [research_log.md](research_log.md) Section 2 for the full 13,075 → 100 screening funnel and breadth upgrade), pooled identically across all positioning factors and governed by two explicit quantitative gates verified directly from SEC filings:
+- **Concentration Gate:** Median quarterly long-`SH` holdings **`10–100` positions**.
+- **Institutional Scale Gate:** Median quarterly 13F long-equity book **`>= $2.0B`** (tracked median book across the 100-entity cohort: **`\$850.1B`**; 2026 active total: **`\$829.3B`**).
 
-- **Cohort Composition (36 funds, pooled identically):**
-  - 12 Concentrated Growth / TMT L/S & Growth Managers
-  - 11 Concentrated Fundamental Value & Contrarian L/S Managers
-  - 9 Long-Horizon Quality Compounders & Fundamental Generalists
-  - 4 Wound-Down 2015-Era Fundamental Peers (`Blue Ridge`, `Melvin`, `Highfields`, `Tourbillon`) to mitigate **filer-level survivorship bias** across the `2015–2023` in-sample window
+- **Cohort Composition (100 audited entities, pooled identically):**
+  - 30 Concentrated Growth / TMT L/S & Growth Managers
+  - 27 Concentrated Fundamental Value & Contrarian L/S Managers
+  - 27 Long-Horizon Quality Compounders & Fundamental Generalists
+  - 16 Wound-Down 2015-Era Fundamental Peers (`Blue Ridge`, `Melvin`, `Highfields`, `Tourbillon`, `Eton Park`, `SPO Advisory`, `Omega`, `Hitchwood`, `Ivory`, `IVA`, `Vontobel`, `Northern Cross`, `Trilogy`, `Holland`, `Santa Barbara`, `ThomasPartners`) to mitigate **filer-level survivorship bias** across the `2015–2023` in-sample window
 - **Deliberately Excluded:**
   - *Passive indexers & mega-asset gatherers* (Vanguard, BlackRock, State Street, Fidelity) — dilute active crowding and concentration shifts with passive index weights.
   - *Quant / stat-arb / market makers / multi-manager pod shops* (RenTech, Citadel, Jane Street, Two Sigma, D.E. Shaw, Millennium, Point72) — high turnover, delta-one option hedges, and internal pod netting make 45-day-lagged 13Fs stale within days.

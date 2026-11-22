@@ -1,22 +1,39 @@
 # SEC 13F Institutional Positioning Factor & Backtester
 
-Point-in-time (PIT) quantitative research pipeline that ingests SEC EDGAR `13F-HR` and `13F-HR/A` filings for a curated, survivorship-mitigated **100-manager universe of fundamental equity funds** (`84` active + `16` closed 2015-era peers), constructs and audits four positioning factor hypotheses strictly In-Sample (`2015–2023`), and evaluates our locked **2-Pillar Crowding** strategy via a corporate-action-clean, rack-based `T+1` MOC backtester across **Train (`2015–2023`)** and a single frozen **Out-of-Sample (`2024–present`)** holdout.
+Point-in-time (PIT) quantitative research pipeline that ingests SEC EDGAR `13F-HR` and `13F-HR/A` filings for an audited **100-manager institutional universe** (`84` active + `16` closed 2015-era peers), evaluates four positioning factor hypotheses strictly In-Sample (`2015–2023`), and backtests our locked **2-Pillar Crowding** strategy via a corporate-action-clean, rack-based `T+1` MOC backtester across **Train (`2015–2023`)** and a single frozen **Out-of-Sample (`2024–present`)** holdout.
 
 ---
 
-## Quickstart (Clean Clone)
+## Key Deliverables (Start Here)
+
+- **Research Memo (5-Page PDF):** [memo/research_memo.pdf](memo/research_memo.pdf) *(GitHub Markdown version: [memo/research_memo.md](memo/research_memo.md))* — executive summary, factor hypotheses & alternatives tested, deliberate scope cuts, PIT data-engineering care, Train vs. Frozen OOS results, honest attribution, and prioritized next steps.
+- **Self-Contained Interactive Notebook:** [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) — 29 pre-executed cells containing all native `statsmodels` OLS summaries, decile & macro-regime tables, GMV-annotated backtest tearsheets, and all 12 saved charts ([outputs/charts/](outputs/charts/)).
+- **Detailed Engineering & Audit Trail:** [docs/research_log.md](docs/research_log.md) (chronological technical log of every data issue encountered and resolved) and [docs/data_governance.md](docs/data_governance.md) (100-manager universe governance and CIK resolution).
+
+---
+
+## Cold-Clone Setup & Deployment
+
+**Prerequisites:** Python `>= 3.11`, `git`, and internet access to SEC EDGAR, OpenFIGI, and Yahoo Finance.
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/cianan-richman/13F-factors.git
 cd 13F-factors
 
+# 2. Create and activate a clean virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
+
+# 3. Install the package with all runtime & dev/notebook dependencies
+pip install --upgrade pip
 pip install -e ".[dev]"
+
+# 4. Create your local environment file from the template
 cp .env.example .env
 ```
 
-Edit `.env` before running ingestion:
+**5. Configure `.env` before running data ingestion:**
 - **`SEC_USER_AGENT` (required by SEC EDGAR fair-access policy):**
   ```bash
   SEC_USER_AGENT="FirstName LastName your.email@domain.com"
@@ -24,29 +41,31 @@ Edit `.env` before running ingestion:
 - **`OPENFIGI_API_KEY` (optional, recommended for faster CUSIP mapping):**
   1. Create a free account at https://www.openfigi.com/api and copy your API key.
   2. Add `OPENFIGI_API_KEY="your-key-here"` to `.env`.
-  3. **Automatic keyless fallback:** If omitted, `src.ingest.cusip_mapper` automatically uses OpenFIGI's free unauthenticated tier (`10 CUSIPs/batch`, incrementally checkpointed to `data/raw/openfigi/cusip_cache.jsonl` so interrupted runs resume seamlessly).
+  3. **Automatic keyless fallback:** If left blank, `src.ingest.cusip_mapper` automatically falls back to OpenFIGI's free unauthenticated tier (`10 CUSIPs/batch`, incrementally checkpointed to `data/raw/openfigi/cusip_cache.jsonl` so interrupted runs resume cleanly).
 
 ---
 
 ## Running the Pipeline
 
 ```bash
-# 1. End-to-end clean-clone run (ingest -> pit -> factors -> backtest)
+# 1. Full end-to-end clean-clone run (ingest -> pit -> factors -> backtest)
 python -m src.run_pipeline --stage all
 
-# 2. Or run individual stages cleanly:
+# 2. Or execute individual stages independently:
 python -m src.run_pipeline --stage ingest                 # Phase 1: EDGAR, OpenFIGI, yfinance, XBRL
 python -m src.run_pipeline --stage pit --verify-parity    # Phase 2: PIT ledger & daily security panel
 python -m src.run_pipeline --stage factors                # Phase 3: IS validation of all 4 factor hypotheses
 python -m src.run_pipeline --stage backtest               # Phase 4: Train (IS) + Frozen OOS (2024+) backtests
 
-# 3. Fast ~60-second ingestion smoke check (recent filings & top tickers)
+# 3. Fast ~60-second live ingestion smoke check (recent filings & top tickers)
 python -m src.run_pipeline --stage ingest --smoke
 
-# 4. Run full automated QA & unit test suite + linter
+# 4. Run full automated QA & unit test suite (65 tests) + linter
 pytest
 ruff check .
 ```
+
+> **Note:** To explore or re-run the pre-rendered results interactively after building the panel, open [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) in Jupyter / VS Code using the `.venv` kernel.
 
 **Expected Cold-Clone Runtime:**
 - `--stage ingest`: ~10–15 minutes with a free `OPENFIGI_API_KEY` (~25 minutes keyless); `< 30 seconds` when re-run from cached raw files.
@@ -58,7 +77,7 @@ ruff check .
 
 ## Key Research & Backtest Summary
 
-Full interactive outputs, native `statsmodels` summaries, and all 12 charts are pre-rendered in [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb) and documented in [docs/research_log.md](docs/research_log.md) and [memo/research_memo.md](memo/research_memo.md).
+For full empirical tables, regression diagnostics (`R²`, clustered SEs, deciles, `10-BD SPY` regimes), and GMV-annotated equity curves, see [memo/research_memo.pdf](memo/research_memo.pdf), [notebooks/factor_research.ipynb](notebooks/factor_research.ipynb), and [docs/research_log.md](docs/research_log.md).
 
 ### Phase 3 — Factor Validation (Strictly In-Sample `2015–2023`, Zero OOS Touch)
 
@@ -97,12 +116,14 @@ Full interactive outputs, native `statsmodels` summaries, and all 12 charts are 
 │   ├── pit/                  # PIT 13F-HR/A & CTR ledger, split-aligned market store, XBRL scrubber, daily panel
 │   ├── factors/              # ownership (core helpers), crowding (+ SPY regime), concentration, smart_money, manager_skill
 │   └── backtest/             # Rack-based corporate-action-clean T+1 MOC engine (horizons, D10-vs-Rest, OOS)
-├── tests/                    # 64+ unit & adversarial PIT/lookahead/amendment/backtest invariant tests
+├── tests/                    # 65 unit & adversarial PIT/lookahead/amendment/backtest invariant tests
 ├── notebooks/
 │   └── factor_research.ipynb # Self-contained pre-executed research & backtest notebook (29 cells)
 ├── outputs/                  # Generated audit reports, factor CSVs, backtest parquets, and 12 charts
 ├── docs/
 │   ├── data_governance.md    # Universe selection & entity-resolution provenance
 │   └── research_log.md       # Chronological technical research log & living backlog
-└── memo/                     # 3–5 page Research Memo (markdown + PDF)
+└── memo/
+    ├── research_memo.pdf     # 5-page submission Research Memo (PDF)
+    └── research_memo.md      # 5-page submission Research Memo (Markdown)
 ```

@@ -427,10 +427,10 @@ flowchart TD
 
 ## 4. Current Verification Status
 
-- **Tests:** `pytest` — **64 passed** (full Phase 1–4 coverage including OOS freeze invariants, `10-BD SPY` ramp/cap tests, fixed capital base, zero-lookahead regime tests, beta-hedge identity, `5% ADV` cap, drifted two-way cost & borrow carry).
+- **Tests:** `pytest` — **65 passed** (full Phase 1–5 coverage including CLI stage parsing, OOS freeze invariants, `10-BD SPY` ramp/cap tests, fixed capital base, zero-lookahead regime tests, beta-hedge identity, `5% ADV` cap, drifted two-way cost & borrow carry).
 - **Lint:** `ruff check .` — **All checks passed** (including `notebooks/factor_research.ipynb`).
-- **Artifacts Generated (Train + Frozen OOS):** [factor_research.ipynb](../notebooks/factor_research.ipynb) (`29` cells covering all of Phase 3 + Phase 4 IS & Frozen OOS), CSVs/Parquets in `outputs/factors/` & `outputs/backtest/`, and 12 charts in `outputs/charts/` (`01_*` → `11_oos_frozen_evaluation.png`).
-- **Next Milestone:** **Phase 5** — wire **`src/run_pipeline.py --stage all`** end-to-end (`ingest → pit → factors → backtest`), verify clean-clone reproducibility, draft the polished **3–5 page Research Memo** (`memo/memo.md` + PDF export), and prepare clean git commit / push to `https://github.com/cianan-richman/13F-factors.git`.
+- **Artifacts Generated (Train + Frozen OOS):** [factor_research.ipynb](../notebooks/factor_research.ipynb) (`29` cells covering all of Phase 3 + Phase 4 IS & Frozen OOS), CSVs/Parquets in `outputs/factors/` & `outputs/backtest/`, 12 charts in `outputs/charts/` (`01_*` → `11_oos_frozen_evaluation.png`), and the 5-page Research Memo ([research_memo.md](../memo/research_memo.md) + [research_memo.pdf](../memo/research_memo.pdf)).
+- **Status:** **Complete (Phases 1–5)** — `python -m src.run_pipeline --stage all` wired and verified end-to-end (`ingest → pit → factors → backtest`), clean-clone README updated, and all deliverables ready for review.
 
 ---
 
